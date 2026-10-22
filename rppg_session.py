@@ -81,12 +81,13 @@ class BrowserSession:
 
     async def _handle(self, msg: dict) -> None:
         kind = msg.get("type")
+        wave = False                        # a fresh estimate: the presenter also gets the pulse wave
         if kind == "samples":
             if self.source != "camera":
                 return
             async with self._dsp:
                 self._add_samples(msg)
-                await asyncio.to_thread(self.engine.update)
+                wave = await asyncio.to_thread(self.engine.update)
         elif kind == "algorithm":
             async with self._dsp:
                 self.engine.set_algorithm(str(msg["value"]))
@@ -102,12 +103,13 @@ class BrowserSession:
             tapped, camera = _number(msg["tapped"]), _number(msg["camera"])
             if not all(BPM_RANGE[0] <= x <= BPM_RANGE[1] for x in (tapped, camera)):
                 raise ValueError("check out of range")
-            rppg_class.update(self._class_id, check={"tapped": round(tapped, 1), "camera": round(camera, 1)})
+            rppg_class.update(self._class_id, check={"tapped": round(tapped, 1), "camera": round(camera, 1),
+                                                     "at": time.time()})
             return
         else:
             return
         if self.source == "camera":
-            await self._send_text(self._telemetry())
+            await self._send_text(self._telemetry(wave))
 
     def _add_samples(self, msg: dict) -> None:
         gen, fs = int(msg["gen"]), float(msg["fs"])
@@ -176,10 +178,10 @@ class BrowserSession:
     def _synthetic_frame(self, t: float) -> tuple[bytes | None, dict]:
         rgb = self.synth.sample(t)
         self.engine.add_sample(t, *rgb)
-        self.engine.update(t)
+        updated = self.engine.update(t)
         frame, outline = self.renderer.render(rgb, self.synth.last_motion)
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-        tele = self._telemetry()
+        tele = self._telemetry(updated)
         h, w = frame.shape[:2]
         tele.update({"synthetic": self.synth.truth, "frame": [w, h], "roi_pixels": self.synth_pixels,
                      "noise_reduction": round(math.sqrt(self.synth_pixels), 1),
@@ -193,8 +195,10 @@ class BrowserSession:
 
     # -- output ----------------------------------------------------------------------
 
-    def _telemetry(self) -> dict:
-        tele = self.engine.telemetry(waveforms=False)
+    def _telemetry(self, wave: bool = False) -> dict:
+        tele = self.engine.telemetry(waveforms=wave and self.presenter)
+        tele.pop("rgb", None)               # the page draws only the pulse wave ("bvp")
+        tele.pop("psd", None)
         tele["source"] = self.source
         tele["presenter"] = self.presenter
         rppg_class.update(self._class_id, source=self.source, status=tele["status"], bpm=tele["bpm"],

@@ -76,7 +76,14 @@
   details { color: var(--muted); font-size: 14px; }
   table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
   td, th { padding: 2px 14px 2px 0; text-align: left; font-weight: 400; }
+  .foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 20px; flex-wrap: wrap; }
   .status { color: var(--muted); font-size: 14px; }
+  .reset {
+    font: inherit; font-size: 14px; color: var(--ink); background: none; border: 0; padding: 2px 0; cursor: pointer;
+    text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 4px; text-decoration-thickness: 2px;
+  }
+  .reset:hover { text-decoration-color: var(--ink); }
+  .reset:focus-visible { outline: 2px solid var(--blood); outline-offset: 3px; border-radius: 2px; }
   .status.bad { color: var(--blood); }
 </style>
 </head>
@@ -116,20 +123,36 @@
     <summary>Show as a table</summary>
     <table id="table"><thead><tr><th>bpm</th><th>people</th></tr></thead><tbody></tbody></table>
   </details>
-  <div class="status" id="status">Connecting…</div>
+  <div class="foot">
+    <div class="status" id="status">Connecting…</div>
+    <button class="reset" id="resetBtn" hidden>Clear pulse checks</button>
+  </div>
 </main>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 const BIN = 5;
+// Opened as /class?presenter=<RPPG_PRESENTER_KEY>: offer to clear the pulse checks (e.g. after a rehearsal).
+const PRESENTER_KEY = new URLSearchParams(location.search).get('presenter') || '';
 const joinUrl = location.origin + '/';
 $('url').textContent = joinUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
-try {
-  new QRCode($('qr'), { text: joinUrl, width: 300, height: 300, colorDark: '#000000', colorLight: '#ffffff',
-                        correctLevel: QRCode.CorrectLevel.M });
-} catch (e) { $('qr').hidden = true; }      // no QR library: the address alone still works
+function makeQr() {
+  try {
+    new QRCode($('qr'), { text: joinUrl, width: 300, height: 300, colorDark: '#000000', colorLight: '#ffffff',
+                          correctLevel: QRCode.CorrectLevel.M });
+  } catch (e) { $('qr').hidden = true; }    // no QR library: the address alone still works
+}
+// The QR library from this server (fetch_assets.py), else from cdnjs.
+function loadQr(urls) {
+  if (!urls.length) { $('qr').hidden = true; return; }
+  const s = document.createElement('script');
+  s.src = urls[0];
+  s.onload = makeQr;
+  s.onerror = () => loadQr(urls.slice(1));
+  document.head.appendChild(s);
+}
+loadQr(['/static/vendor/qrcode.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js']);
 
 function el(name, attrs, parent) {
   const node = document.createElementNS(NS, name);
@@ -247,18 +270,20 @@ function drawChecks(checks) {
 
 // ------------------------------------------------------------ data
 
-let last = null;
+let last = null, noticeUntil = 0;     // a reset message stays up a few seconds
+function say(text, bad) {
+  $('status').textContent = text;
+  $('status').classList.toggle('bad', bad);
+}
 async function poll() {
   try {
     const res = await fetch('/api/class', { cache: 'no-store' });
     if (!res.ok) throw new Error(res.status);
     last = await res.json();
     render(last);
-    $('status').textContent = 'Live. Nothing here identifies anyone: one dot per connected camera.';
-    $('status').classList.remove('bad');
+    if (Date.now() > noticeUntil) say('Live. Nothing here identifies anyone: one dot per connected camera.', false);
   } catch (e) {
-    $('status').textContent = 'Lost the connection to the server. Retrying…';
-    $('status').classList.add('bad');
+    say('Lost the connection to the server. Retrying…', true);
   }
   setTimeout(poll, 1000);
 }
@@ -272,6 +297,19 @@ function render(d) {
   drawChecks(d.checks);
   drawHistogram(r, d.median);
 }
+
+$('resetBtn').hidden = !PRESENTER_KEY;
+$('resetBtn').onclick = async () => {
+  if (!confirm('Clear everyone\'s pulse checks from the class view?')) return;
+  try {
+    const res = await fetch('/api/class/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ key: PRESENTER_KEY }) });
+    say(res.ok ? 'Pulse checks cleared.' : 'The server did not accept that presenter key.', !res.ok);
+  } catch (e) {
+    say('Could not reach the server.', true);
+  }
+  noticeUntil = Date.now() + 4000;
+};
 
 window.addEventListener('resize', () => last && render(last));
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => last && render(last));

@@ -16,6 +16,12 @@ WORKDIR /app
 COPY requirements-web.txt .
 RUN pip install -r requirements-web.txt
 
+# MediaPipe (JS + WebAssembly), its face/hand models and the QR library, served
+# from this container so students' browsers only need to reach this server.
+# Checksum-pinned; this layer is cached until fetch_assets.py changes.
+COPY fetch_assets.py .
+RUN python fetch_assets.py
+
 COPY app.py rppg_class.py rppg_dsp.py rppg_session.py rppg_synthetic.py ./
 COPY static ./static
 

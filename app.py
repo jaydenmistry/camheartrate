@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -39,6 +39,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("rppg.app")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+VENDOR_FILES = ("mediapipe/vision_bundle.mjs", "mediapipe/wasm/vision_wasm_internal.wasm",
+                "mediapipe/face_landmarker.task", "mediapipe/hand_landmarker.task")
 SEND_INTERVAL = 1.0 / 40.0       # poll faster than the 30 FPS source; only new frames are sent
 SOURCE = os.environ.get("RPPG_SOURCE", "camera").lower()
 BROWSER = SOURCE == "browser"
@@ -110,10 +112,24 @@ async def class_data() -> JSONResponse:
     return JSONResponse(rppg_class.summarise([entry], time.time()))
 
 
+@app.post("/api/class/reset")
+async def class_reset(key: str = Body("", embed=True)) -> JSONResponse:
+    """Presenter only: clear everyone's pulse checks, e.g. after a rehearsal."""
+    if not (BROWSER and is_presenter(key)):
+        return JSONResponse({"ok": False}, status_code=403)
+    rppg_class.reset()
+    return JSONResponse({"ok": True})
+
+
+def is_presenter(key: str) -> bool:
+    return bool(PRESENTER_KEY) and secrets.compare_digest(key.encode(), PRESENTER_KEY.encode())
+
+
 @app.get("/api/config")
 async def config() -> JSONResponse:
     """Tells the page whether it measures its own camera (browser) or shows this machine's (server)."""
-    return JSONResponse({"mode": "browser" if BROWSER else "server"})
+    local = all((STATIC_DIR / "vendor" / f).exists() for f in VENDOR_FILES)     # see fetch_assets.py
+    return JSONResponse({"mode": "browser" if BROWSER else "server", "local_assets": local})
 
 
 @app.get("/healthz")
@@ -140,8 +156,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
         if app.state.sessions >= MAX_SESSIONS:
             await websocket.close(code=1013, reason="server full")
             return
-        given = websocket.query_params.get("presenter", "")
-        presenter = bool(PRESENTER_KEY) and secrets.compare_digest(given.encode(), PRESENTER_KEY.encode())
+        presenter = is_presenter(websocket.query_params.get("presenter", ""))
         app.state.sessions += 1
         try:
             await BrowserSession(websocket, presenter=presenter).run()

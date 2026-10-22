@@ -10,3 +10,6 @@ models/
 # Local tooling and OS files
 .claude/
 .DS_Store
+
+# Browser tracking files, downloaded by fetch_assets.py
+static/vendor/

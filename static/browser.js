@@ -6,10 +6,21 @@
 // Video never leaves the browser. This follows rppg_vision.py, rppg_regions.py
 // and rppg_pipeline.py; arbitrary skin blobs (an arm) are not tracked here.
 
+// Tracking files: from this server when it has them (fetch_assets.py, run by the
+// Docker build), so a network that blocks CDNs still works; otherwise from the CDNs.
 const MP_VERSION = '0.10.14';
-const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
-const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
-const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const CDN_ASSETS = {
+  bundle: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`,
+  wasm: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`,
+  face: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+  hand: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+};
+const LOCAL_ASSETS = {
+  bundle: '/static/vendor/mediapipe/vision_bundle.mjs',
+  wasm: '/static/vendor/mediapipe/wasm',
+  face: '/static/vendor/mediapipe/face_landmarker.task',
+  hand: '/static/vendor/mediapipe/hand_landmarker.task',
+};
 
 const FOREHEAD = [10, 338, 297, 332, 299, 337, 151, 108, 69, 103, 67, 109];
 const LEFT_MALAR = [117, 118, 101, 36, 205, 187, 123];
@@ -214,8 +225,9 @@ function cameraError(e) {
 }
 
 export class BrowserCamera {
-  constructor(video, { send, onChange, onNotice }) {
+  constructor(video, { send, onChange, onNotice, localAssets = false }) {
     Object.assign(this, { video, send, onChange, onNotice });
+    this.assets = localAssets ? LOCAL_ASSETS : CDN_ASSETS;
     this.state = 'idle';            // idle | camera | failed
     this.ready = false;             // tracking models loaded
     this.active = true;             // false while the simulation runs
@@ -272,8 +284,8 @@ export class BrowserCamera {
   }
 
   async loadModels() {
-    const { FilesetResolver, FaceLandmarker, HandLandmarker } = await import(`${MP_BASE}/vision_bundle.mjs`);
-    const files = await FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const { FilesetResolver, FaceLandmarker, HandLandmarker } = await import(this.assets.bundle);
+    const files = await FilesetResolver.forVisionTasks(this.assets.wasm);
     const make = async (Kind, opts) => {
       try {
         return await Kind.createFromOptions(files, { ...opts, baseOptions: { ...opts.baseOptions, delegate: 'GPU' } });
@@ -282,9 +294,9 @@ export class BrowserCamera {
       }
     };
     [this.face, this.hand] = await Promise.all([
-      make(FaceLandmarker, { baseOptions: { modelAssetPath: FACE_MODEL }, runningMode: 'VIDEO', numFaces: 1,
+      make(FaceLandmarker, { baseOptions: { modelAssetPath: this.assets.face }, runningMode: 'VIDEO', numFaces: 1,
         minFaceDetectionConfidence: 0.5, minFacePresenceConfidence: 0.5, minTrackingConfidence: 0.5 }),
-      make(HandLandmarker, { baseOptions: { modelAssetPath: HAND_MODEL }, runningMode: 'VIDEO', numHands: 1,
+      make(HandLandmarker, { baseOptions: { modelAssetPath: this.assets.hand }, runningMode: 'VIDEO', numHands: 1,
         minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 }),
     ]);
     this.lastTs = 0;

@@ -147,6 +147,12 @@
   /* While tapping, the camera's number is hidden so it cannot lead the tapping. */
   .readout[data-blind] .bpm, .readout[data-blind] .trend canvas { filter: blur(18px); }
 
+  /* ---- pulse wave (presenter) ---- */
+  .wave { display: grid; gap: 4px; }
+  .wave-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; }
+  .wave-head span:last-child { color: var(--muted); font-size: 13px; }
+  .wave canvas { width: 100%; height: clamp(72px, 11vh, 120px); display: block; }
+
   /* ---- readout ---- */
   .readout {
     display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 28px; align-items: end;
@@ -203,6 +209,7 @@
       <span class="status-hint" id="statusHint"></span>
     </div>
     <div class="controls">
+      <a class="link" id="classLink" target="_blank" rel="noopener" hidden>Class view</a>
       <button class="link" id="checkBtn" hidden>Check with your pulse</button>
       <button class="link" id="autoBtn" hidden>Pick skin automatically</button>
       <span class="mode" id="mode"></span>
@@ -230,6 +237,11 @@
       <canvas id="trend" aria-label="Heart rate over the last minute"></canvas>
       <div class="trend-axis"><span>1 min ago</span><span>now</span></div>
     </div>
+  </section>
+
+  <section class="wave" id="wave" hidden aria-label="Pulse wave">
+    <div class="wave-head"><span>Pulse wave, last 6 seconds</span><span>each dot is a heartbeat</span></div>
+    <canvas id="waveCanvas"></canvas>
   </section>
 </main>
 
@@ -521,6 +533,11 @@ function render(t) {
     $('camBtn').textContent = `Use ${other.name}${other.fps > cam.fps ? ` (${Math.round(other.fps)} fps)` : ''}`;
   }
 
+  if (t.bvp && t.bvp.t && t.bvp.t.length) st.wave = { ...t.bvp, at: performance.now() };
+  $('wave').hidden = !(mode === 'server' || t.presenter);
+  $('classLink').hidden = !(mode === 'browser' && t.presenter);
+  if (!$('classLink').hidden) $('classLink').href = `/class?presenter=${encodeURIComponent(PRESENTER_KEY)}`;
+
   const p = progressOf(t);
   $('progress').hidden = p === null;
   if (p !== null) $('progress').style.setProperty('--p', p.toFixed(3));
@@ -638,6 +655,46 @@ function hexA(color, a) {
 window.addEventListener('resize', drawTrend);
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawTrend);
 
+// ------------------------------------------------------------- pulse wave
+// The extracted pulse (after the colour projection and filtering), as it
+// arrives about 4 times a second. It scrolls left between arrivals so it
+// moves smoothly; dots mark the beats the peak finder picked.
+const WAVE_S = 6;
+function drawWave() {
+  const cv = $('waveCanvas'), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = cssVar('--rule'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, Math.round(H / 2) + 0.5); ctx.lineTo(W, Math.round(H / 2) + 0.5); ctx.stroke();
+  const w = st.wave, age = w ? (performance.now() - w.at) / 1000 : Infinity;
+  if (age > 1.5) {
+    ctx.fillStyle = cssVar('--muted'); ctx.font = `400 13px ${cssVar('--font')}`; ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('The pulse wave draws here once there is a signal.', W / 2, H / 2 - 12);
+    ctx.textAlign = 'start';
+    return;
+  }
+  const x = (tr) => W * (1 + (tr - age) / WAVE_S);
+  const y = (v) => H / 2 - Math.max(-3, Math.min(3, v)) / 3 * (H / 2 - 6);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  ctx.beginPath();
+  w.t.forEach((tr, i) => i ? ctx.lineTo(x(tr), y(w.y[i])) : ctx.moveTo(x(tr), y(w.y[i])));
+  ctx.strokeStyle = cssVar('--blood'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+  for (const i of w.peaks || []) {
+    ctx.beginPath(); ctx.arc(x(w.t[i]), y(w.y[i]), 4, 0, Math.PI * 2);
+    ctx.fillStyle = cssVar('--blood'); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = cssVar('--ground'); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // ------------------------------------------------------------- frame loop
 let lastTs = performance.now();
 function frame(ts) {
@@ -649,6 +706,7 @@ function frame(ts) {
     beat = st.phase < 0.12 ? st.phase / 0.12 : Math.exp(-(st.phase - 0.12) * 7);   // fast rise, slow fall
   }
   stage.style.setProperty('--beat', beat.toFixed(3));
+  if (!$('wave').hidden) drawWave();
   statusEl.style.setProperty('--beat', beat.toFixed(3));
   requestAnimationFrame(frame);
 }
@@ -656,10 +714,13 @@ requestAnimationFrame(frame);
 setLight(light, false);
 
 async function boot() {
-  try { mode = (await (await fetch('/api/config')).json()).mode || mode; } catch (e) { /* older server */ }
+  let config = {};
+  try { config = await (await fetch('/api/config')).json(); } catch (e) { /* older server */ }
+  mode = config.mode || mode;
   if (mode === 'browser') {
     const { BrowserCamera } = await import('/static/browser.js');
-    browserCam = new BrowserCamera($('cam'), { send, onChange: () => { st.dirty = true; }, onNotice: toast });
+    browserCam = new BrowserCamera($('cam'), { send, onChange: () => { st.dirty = true; }, onNotice: toast,
+                                               localAssets: !!config.local_assets });
     browserCam.start();
   }
   connect();
