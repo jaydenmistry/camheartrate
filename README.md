@@ -15,6 +15,31 @@ To start without a camera (for example, if a lecture-room machine has none), run
 
 On first webcam use the app downloads Google's MediaPipe face and hand landmark models (~3.6 MB and ~7.8 MB) into `models/`. On macOS the terminal running uvicorn needs camera permission: *System Settings → Privacy & Security → Camera*.
 
+## Deploying it for a class
+
+Deployed, every visitor uses **their own** camera from their own laptop. The page opens the camera in the browser, finds the face or palm with MediaPipe's in-browser version, and averages each skin patch on the visitor's machine. Only those averages go to the server, about 30 rows of 10 numbers a second (~3 KB/s). The server runs the same DSP as the local version, one measurement per connection. Video never leaves the browser, and no JPEG compression touches the 0.1–0.5 % colour change being measured.
+
+Try browser mode locally first. `localhost` counts as a secure page, so the camera works there:
+
+```bash
+RPPG_SOURCE=browser uvicorn app:app        # then open http://localhost:8000
+```
+
+**Dokploy.** The `Dockerfile` builds the deployable server. It is small (no MediaPipe or camera libraries; see `requirements-web.txt`) and listens on port 8000.
+
+1. Push this repository to GitHub.
+2. In Dokploy: *Create Project → Create Service → Application*. Under *General*, pick the GitHub provider, this repository and branch, then set *Build Type* to **Dockerfile** (path `Dockerfile`). Deploy.
+3. Under *Domains*, add your domain (or Dokploy's generated `traefik.me` one), container port **8000**, with **HTTPS on** and the **Let's Encrypt** certificate. Browsers allow camera access only on HTTPS pages, so plain HTTP will show "The camera needs a secure connection".
+4. Open the domain, allow the camera, and share the link (a QR code works well on a slide).
+
+WebSockets pass through Dokploy's Traefik with no extra settings. Optional environment variable: `RPPG_MAX_SESSIONS` (default 200). `/healthz` answers health checks, and `/api/telemetry` shows how many people are connected.
+
+**Capacity.** Each connected person costs the server about 3 ms of DSP four times a second, so 40 students need roughly half a CPU core. The face and hand tracking runs on each student's own laptop.
+
+**Differences from the local version.** The local version (`RPPG_SOURCE=camera`, the default) reads this Mac's camera through AVFoundation at up to 60 fps with hardware timestamps, and can also measure any exposed skin, such as an arm. In the browser, cameras usually give 30 fps, timestamps come from the browser, and only the face and palm are tracked. Tap the face or palm to lock onto it. The keyboard demo controls (`1` `2` `3`, `S`, arrows) work in both. Each visitor gets their own simulation and their own method setting.
+
+The page loads MediaPipe from cdn.jsdelivr.net and its models from storage.googleapis.com. A network that blocks either shows "Could not load the tracking models".
+
 ## Using it
 
 The page shows the camera, the patch of skin being read (outlined), your heart rate, and a one-minute graph of it.
@@ -113,7 +138,10 @@ The full DSP output (BVP waveform, spectrum, RGB traces, SQI, RMSSD) is still st
 | `rppg_synthetic.py` | dichromatic-model skin trace generator (pulse with dicrotic notch, sinus arrhythmia, motion, specular, noise) and its stand-in frame |
 | `rppg_pipeline.py` | measure and track threads; sends the mirrored outline as polygons |
 | `app.py` | FastAPI server, `/ws` WebSocket (binary JPEG + JSON telemetry, JSON commands back) |
+| `rppg_session.py` | deployed mode: one DSP engine per browser, fed with that browser's skin-patch averages; its own simulation |
 | `static/index.html` | the app page: camera, skin outline, heart rate, one-minute graph (plain HTML/CSS/canvas) |
+| `static/browser.js` | deployed mode: the visitor's camera, MediaPipe face/hand tracking, region choice, per-frame skin averaging |
+| `Dockerfile`, `requirements-web.txt` | the deployable server (browser mode) |
 | `test_dsp.py` | 11 self-tests: 72.0 ± 1.0 BPM through motion spikes (30 and 60 Hz), full 60–160 range, harmonic guard, patch fusion, motion bursts, steady first reading |
 
 ## Limitations

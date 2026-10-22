@@ -76,8 +76,9 @@
     cursor: crosshair;
     -webkit-tap-highlight-color: transparent;
   }
-  .stage img, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .stage img { object-fit: cover; display: block; }
+  .stage img, .stage video, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stage img, .stage video { object-fit: cover; display: block; }
+  .stage video { transform: scaleX(-1); }     /* a selfie view; the outline is mirrored to match */
   .stage svg { pointer-events: none; overflow: visible; }
   .roi {
     fill: rgb(var(--flush) / calc(0.04 + var(--beat) * 0.30));
@@ -162,6 +163,7 @@
 <main>
   <div class="stage" id="stage" data-phase="none">
     <img id="video" alt="Live camera view. Tap any skin to measure there.">
+    <video id="cam" playsinline muted hidden aria-label="Live camera view. Tap your face or palm to measure there."></video>
     <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><path id="roi" class="roi" d=""/></svg>
     <div class="placeholder" id="placeholder">Starting the camera…</div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -204,6 +206,20 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 
 const st = { tele: null, dirty: false, ar: null, noticeId: null, hr: null, phase: 0, history: [], lastSample: 0 };
 
+// "server": show this machine's camera, measured by the server (local demo).
+// "browser": measure this browser's own camera (deployed); see static/browser.js.
+let mode = 'server', browserCam = null;
+
+// What the page shows: the server's telemetry, with the browser's own camera,
+// skin region and messages laid over it while that camera is the source.
+function current() {
+  const t = st.tele || { status: null, bpm: null };
+  if (!browserCam || t.source === 'synthetic') return t;
+  const local = browserCam.telemetry();
+  if (st.connected === false && !local.message) local.message = 'Lost the connection to the server. Retrying…';
+  return { ...t, ...local };
+}
+
 // Screen light: on unless the viewer turned it off last time.
 let light = true;
 try { light = localStorage.getItem('screenLight') !== 'off'; } catch (e) { /* storage blocked */ }
@@ -221,7 +237,8 @@ let ws = null;
 function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   ws.binaryType = 'blob';
-  ws.onclose = () => { setStatus('warning', 'Lost the connection to the server. Retrying…', ''); setTimeout(connect, 1000); };
+  ws.onopen = () => { st.connected = true; };
+  ws.onclose = () => { st.connected = false; st.dirty = true; setStatus('warning', 'Lost the connection to the server. Retrying…', ''); setTimeout(connect, 1000); };
   ws.onmessage = (ev) => {
     if (typeof ev.data === 'string') { st.tele = JSON.parse(ev.data); st.dirty = true; return; }
     const url = URL.createObjectURL(ev.data);
@@ -236,9 +253,11 @@ const send = (msg) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON
 // ------------------------------------------------------------- input
 stage.addEventListener('click', (e) => {
   const r = stage.getBoundingClientRect();
-  send({ type: 'select', x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height });
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  if (browserCam) browserCam.tap(1 - x, y);           // the view is mirrored
+  else send({ type: 'select', x, y });
 });
-$('autoBtn').onclick = () => send({ type: 'auto' });
+$('autoBtn').onclick = () => browserCam ? browserCam.release() : send({ type: 'auto' });
 $('lightBtn').onclick = () => setLight(!light, true);
 // A bigger white area is a brighter light: offer full screen where the browser allows it.
 if (document.documentElement.requestFullscreen) {
@@ -251,7 +270,9 @@ if (document.documentElement.requestFullscreen) {
 }
 $('camBtn').onclick = () => {
   const next = $('camBtn').dataset.id;
-  if (next) { send({ type: 'camera', value: next }); toast(`Switching to ${$('camBtn').dataset.name}`); }
+  if (!next) return;
+  if (browserCam) browserCam.switchTo(next); else send({ type: 'camera', value: next });
+  toast(`Switching to ${$('camBtn').dataset.name}`);
 };
 
 // Demo controls stay off screen: 1/2/3 method, S simulation, arrows tune the simulation.
@@ -265,6 +286,7 @@ document.addEventListener('keydown', (e) => {
   } else if (e.key === 's' || e.key === 'S') {
     const to = t.source === 'synthetic' ? 'camera' : 'synthetic';
     send({ type: 'source', value: to });
+    if (browserCam) browserCam.setActive(to === 'camera');
     toast(to === 'synthetic' ? 'Simulation on' : 'Camera on');
   } else if (sim && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     const bpm = Math.max(60, Math.min(160, sim.bpm + (e.key === 'ArrowUp' ? 5 : -5)));
@@ -294,7 +316,7 @@ function setStatus(phase, main, hint) {
 function describe(t) {
   const label = LABEL[t.region?.kind] || 'your skin';
   if (t.message) return ['warning', t.message, ''];
-  if (t.source === 'idle') return ['none', 'Starting the camera…', ''];
+  if (t.source === 'idle') return ['none', t.loading || 'Starting the camera…', ''];
   const glare = t.clipped > 0.25 ? 'Part of the skin is overexposed. Move back from the light a little.' : '';
   const hint = t.source === 'camera' && !t.region?.locked ? 'Tap any skin to measure there.' : '';
   const truth = t.synthetic ? ` True rate ${Math.round(t.synthetic.bpm_actual ?? t.synthetic.bpm)} bpm.` : '';
@@ -318,6 +340,12 @@ function render(t) {
   if (t.frame) {
     const ar = t.frame[0] / t.frame[1];
     if (ar !== st.ar) { document.querySelector('main').style.setProperty('--ar', ar.toFixed(4)); st.ar = ar; }
+  }
+  if (browserCam) {
+    const sim = t.source === 'synthetic';
+    $('cam').hidden = sim;
+    video.hidden = !sim;
+    $('placeholder').hidden = sim ? !!video.src : browserCam.state === 'camera';
   }
   const outline = t.region?.outline || [];
   roi.setAttribute('d', outline.map(poly => 'M' + poly.map(p => `${p[0]} ${p[1]}`).join('L') + 'Z').join(''));
@@ -444,7 +472,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', dra
 let lastTs = performance.now();
 function frame(ts) {
   const dt = Math.min(0.1, (ts - lastTs) / 1000); lastTs = ts;
-  if (st.dirty && st.tele) { render(st.tele); st.dirty = false; }
+  if (st.dirty) { render(current()); st.dirty = false; }
   let beat = 0;
   if (st.hr && !reduceMotion && !light) {
     st.phase = (st.phase + dt * st.hr / 60) % 1;
@@ -456,7 +484,17 @@ function frame(ts) {
 }
 requestAnimationFrame(frame);
 setLight(light, false);
-connect();
+
+async function boot() {
+  try { mode = (await (await fetch('/api/config')).json()).mode || mode; } catch (e) { /* older server */ }
+  if (mode === 'browser') {
+    const { BrowserCamera } = await import('/static/browser.js');
+    browserCam = new BrowserCamera($('cam'), { send, onChange: () => { st.dirty = true; }, onNotice: toast });
+    browserCam.start();
+  }
+  connect();
+}
+boot();
 </script>
 </body>
 </html>

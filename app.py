@@ -3,8 +3,12 @@
 Run:  uvicorn app:app --reload          then open http://localhost:8000
 
 Environment:
-    RPPG_SOURCE   camera (default) | synthetic
+    RPPG_SOURCE   camera (default) | synthetic | browser
+                  camera/synthetic: this machine's camera (or the simulation) feeds
+                  one shared measurement. browser: every visitor's page uses its own
+                  camera and gets its own measurement (rppg_session.py); for deployment.
     RPPG_CAMERA   camera name or id to start with (default: the built-in camera)
+    RPPG_MAX_SESSIONS   browser mode: most visitors measured at once (default 200)
 """
 
 from __future__ import annotations
@@ -15,26 +19,39 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from rppg_pipeline import Pipeline
+from rppg_session import BrowserSession
+
+if TYPE_CHECKING:
+    from rppg_pipeline import Pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("rppg.app")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 SEND_INTERVAL = 1.0 / 40.0       # poll faster than the 30 FPS source; only new frames are sent
+SOURCE = os.environ.get("RPPG_SOURCE", "camera").lower()
+BROWSER = SOURCE == "browser"
+MAX_SESSIONS = int(os.environ.get("RPPG_MAX_SESSIONS", "200"))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.sessions = 0
+    if BROWSER:
+        log.info("ready at http://localhost:8000 (each browser uses its own camera)")
+        yield
+        return
+    from rppg_pipeline import Pipeline     # needs MediaPipe and camera access; not in browser mode
+
     # Built on the event loop's (main) thread so a first-run macOS camera
     # permission prompt can appear.
-    pipeline = Pipeline(source=os.environ.get("RPPG_SOURCE", "camera").lower(),
-                        camera_id=os.environ.get("RPPG_CAMERA") or None)
+    pipeline = Pipeline(source=SOURCE, camera_id=os.environ.get("RPPG_CAMERA") or None)
     pipeline.start()
     app.state.pipeline = pipeline
     log.info("dashboard ready at http://localhost:8000 (source: %s)", pipeline.source)
@@ -64,9 +81,22 @@ async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/api/config")
+async def config() -> JSONResponse:
+    """Tells the page whether it measures its own camera (browser) or shows this machine's (server)."""
+    return JSONResponse({"mode": "browser" if BROWSER else "server"})
+
+
+@app.get("/healthz")
+async def healthz() -> JSONResponse:
+    return JSONResponse({"ok": True})
+
+
 @app.get("/api/telemetry")
 async def telemetry() -> JSONResponse:
     """Latest telemetry snapshot (handy for debugging without the UI)."""
+    if BROWSER:
+        return JSONResponse({"mode": "browser", "sessions": app.state.sessions})
     _, _, tele = app.state.pipeline.latest()
     return JSONResponse(tele)
 
@@ -74,8 +104,19 @@ async def telemetry() -> JSONResponse:
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket) -> None:
     """Server -> client: binary JPEG frame, then a JSON telemetry text message.
-    Client -> server: JSON commands, e.g. {"type": "algorithm", "value": "CHROM"}."""
+    Client -> server: JSON commands, e.g. {"type": "algorithm", "value": "CHROM"}.
+    In browser mode each connection is its own measurement; see rppg_session.py."""
     await websocket.accept()
+    if BROWSER:
+        if app.state.sessions >= MAX_SESSIONS:
+            await websocket.close(code=1013, reason="server full")
+            return
+        app.state.sessions += 1
+        try:
+            await BrowserSession(websocket).run()
+        finally:
+            app.state.sessions -= 1
+        return
     pipeline: Pipeline = websocket.app.state.pipeline
 
     async def receive_commands() -> None:

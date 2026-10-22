@@ -1,0 +1,8 @@
+# Server for the deployed app (RPPG_SOURCE=browser; see Dockerfile). Each visitor's
+# browser does the camera, tracking and skin averaging, so no MediaPipe, camera or
+# GUI libraries here.
+numpy>=1.26
+scipy>=1.11
+opencv-python-headless>=4.8     # simulation frames only
+fastapi>=0.110
+uvicorn[standard]>=0.29
