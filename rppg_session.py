@@ -14,6 +14,7 @@ Client -> server (JSON):
   {"type": "source", "value": "synthetic" | "camera"}     simulation: presenter only
   {"type": "synthetic", "bpm": 90, "motion": 0.5}
   {"type": "reset"}
+  {"type": "check", "tapped": 74, "camera": 72}       pulse check result, for the class view
 Server -> client: JSON telemetry; in the simulation also a binary JPEG per frame.
 
 The DSP and the simulation's rendering run in worker threads, so one busy
@@ -32,6 +33,7 @@ import cv2
 import numpy as np
 from fastapi import WebSocket, WebSocketDisconnect
 
+import rppg_class
 from rppg_dsp import RPPGEngine
 from rppg_synthetic import SyntheticRenderer, SyntheticSkinTrace, roi_pixel_count
 
@@ -42,6 +44,7 @@ JPEG_QUALITY = 80
 MAX_PATCHES = 4
 MAX_ROWS = 120              # rows per message (4 s at 30 fps)
 FS_RANGE = (10.0, 60.0)     # sampling rates a browser may ask for
+BPM_RANGE = (30.0, 220.0)   # plausible rates in a pulse check
 
 
 class BrowserSession:
@@ -57,6 +60,7 @@ class BrowserSession:
         self._send_lock = asyncio.Lock()
         self._dsp = asyncio.Lock()          # one engine operation at a time
         self._synth_task: asyncio.Task | None = None
+        self._class_id = rppg_class.register()
 
     async def run(self) -> None:
         try:
@@ -71,6 +75,7 @@ class BrowserSession:
             pass
         finally:
             self._stop_synthetic()
+            rppg_class.unregister(self._class_id)
 
     # -- messages ----------------------------------------------------------------
 
@@ -93,6 +98,12 @@ class BrowserSession:
         elif kind == "reset":
             async with self._dsp:
                 self.engine.reset()
+        elif kind == "check":
+            tapped, camera = _number(msg["tapped"]), _number(msg["camera"])
+            if not all(BPM_RANGE[0] <= x <= BPM_RANGE[1] for x in (tapped, camera)):
+                raise ValueError("check out of range")
+            rppg_class.update(self._class_id, check={"tapped": round(tapped, 1), "camera": round(camera, 1)})
+            return
         else:
             return
         if self.source == "camera":
@@ -186,6 +197,8 @@ class BrowserSession:
         tele = self.engine.telemetry(waveforms=False)
         tele["source"] = self.source
         tele["presenter"] = self.presenter
+        rppg_class.update(self._class_id, source=self.source, status=tele["status"], bpm=tele["bpm"],
+                          measuring=tele["buffer_s"] > 0)
         return tele
 
     async def _send_text(self, tele: dict) -> None:

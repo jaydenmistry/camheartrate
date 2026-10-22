@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -28,6 +29,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import rppg_class
 from rppg_session import BrowserSession
 
 if TYPE_CHECKING:
@@ -51,7 +53,12 @@ async def lifespan(app: FastAPI):
         log.info("ready at http://localhost:8000 (each browser uses its own camera)")
         if not PRESENTER_KEY:
             log.info("simulation off: set RPPG_PRESENTER_KEY, then open the page with ?presenter=<key>")
-        yield
+        writer = asyncio.create_task(rppg_class.keep_writing())
+        try:
+            yield
+        finally:
+            writer.cancel()
+            rppg_class.remove_file()
         return
     from rppg_pipeline import Pipeline     # needs MediaPipe and camera access; not in browser mode
 
@@ -85,6 +92,22 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/class")
+async def class_view() -> FileResponse:
+    """Projector page: how many are connected and everyone's heart rate."""
+    return FileResponse(STATIC_DIR / "class.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/class")
+async def class_data() -> JSONResponse:
+    if BROWSER:
+        return JSONResponse(rppg_class.snapshot())
+    _, _, tele = app.state.pipeline.latest()        # local: the one measurement on this machine
+    entry = {"source": tele.get("source"), "status": tele.get("status"), "bpm": tele.get("bpm"),
+             "measuring": (tele.get("buffer_s") or 0) > 0, "t": time.time()}
+    return JSONResponse(rppg_class.summarise([entry], time.time()))
 
 
 @app.get("/api/config")

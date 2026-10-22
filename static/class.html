@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Class Heart Rates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
+<style>
+  /* Projector view: how many people are connected, and everyone's heart rate.
+     Same tokens as the measuring page. */
+  :root {
+    --ground: #f4f2f2; --ink: #1e1719; --muted: #76696c; --rule: #e3dcdd;
+    --blood: #c0182f;       /* text accents */
+    --mark: #c0182f;        /* chart marks (validated against the surface) */
+    --font: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #141112; --ink: #f4eeee; --muted: #a09396; --rule: #2b2426;
+      --blood: #ff5266; --mark: #f2475d; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #141112; --ink: #f4eeee; --muted: #a09396; --rule: #2b2426;
+    --blood: #ff5266; --mark: #f2475d; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--ground); color: var(--ink); }
+  body {
+    font-family: var(--font); font-size: 16px; line-height: 1.45; -webkit-font-smoothing: antialiased;
+    padding: clamp(16px, 3vw, 40px) max(16px, 3vw);
+  }
+  main { max-width: 1400px; margin: 0 auto; display: grid; gap: clamp(18px, 3vh, 32px); }
+
+  header { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; }
+  h1 {
+    margin: 0; font-size: clamp(30px, 4.4vw, 60px); font-weight: 760; line-height: 1;
+    font-stretch: 75%; font-variation-settings: 'wdth' 75; letter-spacing: -0.01em;
+  }
+  .join { display: flex; align-items: center; gap: 16px; }
+  .qr { background: #fff; padding: 8px; border-radius: 10px; line-height: 0; }
+  .qr img, .qr canvas { width: clamp(96px, 10vw, 150px); height: auto; }
+  .join-text { display: grid; }
+  .join-label { color: var(--muted); font-size: 15px; }
+  .join-url { font-size: clamp(18px, 2vw, 28px); font-weight: 600; overflow-wrap: anywhere; }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 28px;
+    border-top: 1px solid var(--rule); padding-top: 14px;
+  }
+  .stat { display: grid; gap: 2px; }
+  .stat b {
+    font-size: clamp(44px, 6vw, 88px); font-weight: 740; line-height: 0.95;
+    font-stretch: 62%; font-variation-settings: 'wdth' 62;
+  }
+  .stat span { color: var(--muted); font-size: 15px; }
+
+  .charts { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 28px; }
+  .charts.single { grid-template-columns: minmax(0, 1fr); }
+  @media (max-width: 860px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+  figure { margin: 0; display: grid; gap: 8px; min-width: 0; position: relative; }
+  figcaption { color: var(--muted); font-size: 15px; }
+  .chart-title { font-size: 17px; font-weight: 600; }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+  svg text { font-family: var(--font); fill: var(--muted); font-size: 13px; }
+  .empty { fill: var(--muted); font-size: 16px; }
+  .tip {
+    position: absolute; pointer-events: none; background: var(--ink); color: var(--ground);
+    font-size: 14px; padding: 5px 9px; border-radius: 6px; white-space: nowrap;
+    transform: translate(-50%, calc(-100% - 10px));
+  }
+  details { color: var(--muted); font-size: 14px; }
+  table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  td, th { padding: 2px 14px 2px 0; text-align: left; font-weight: 400; }
+  .status { color: var(--muted); font-size: 14px; }
+  .status.bad { color: var(--blood); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Heart rates in this room</h1>
+    <div class="join">
+      <div class="qr" id="qr" aria-hidden="true"></div>
+      <div class="join-text"><span class="join-label">Measure yours at</span><span class="join-url" id="url"></span></div>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="Summary">
+    <div class="stat"><b id="connected">0</b><span>connected</span></div>
+    <div class="stat"><b id="reading">0</b><span>with a reading</span></div>
+    <div class="stat"><b id="median">–</b><span>median bpm</span></div>
+    <div class="stat"><b id="range">–</b><span>range, bpm</span></div>
+  </section>
+
+  <section class="charts" id="charts">
+    <figure>
+      <div class="chart-title">Everyone's heart rate</div>
+      <svg id="hist" role="img" aria-label="Heart rates of everyone with a reading, one dot per person"></svg>
+      <figcaption>One dot per person, grouped in 5 bpm steps. Readings update every second.</figcaption>
+      <div class="tip" id="histTip" hidden></div>
+    </figure>
+    <figure id="checksFig" hidden>
+      <div class="chart-title">Camera vs. finger on the pulse</div>
+      <svg id="scatter" role="img" aria-label="Pulse checks: tapped rate against camera rate"></svg>
+      <figcaption id="checksText"></figcaption>
+      <div class="tip" id="scatterTip" hidden></div>
+    </figure>
+  </section>
+
+  <details>
+    <summary>Show as a table</summary>
+    <table id="table"><thead><tr><th>bpm</th><th>people</th></tr></thead><tbody></tbody></table>
+  </details>
+  <div class="status" id="status">Connecting…</div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const BIN = 5;
+const joinUrl = location.origin + '/';
+$('url').textContent = joinUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+try {
+  new QRCode($('qr'), { text: joinUrl, width: 300, height: 300, colorDark: '#000000', colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.M });
+} catch (e) { $('qr').hidden = true; }      // no QR library: the address alone still works
+
+function el(name, attrs, parent) {
+  const node = document.createElementNS(NS, name);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function tip(id, figure, text, x, y) {
+  const t = $(id);
+  if (!text) { t.hidden = true; return; }
+  const r = figure.getBoundingClientRect();
+  t.textContent = text; t.hidden = false;
+  t.style.left = `${x - r.left}px`; t.style.top = `${y - r.top}px`;
+}
+
+// ------------------------------------------------------------ dot histogram
+
+function drawHistogram(readings, median) {
+  const svg = $('hist');
+  const W = Math.max(320, svg.clientWidth || 800), H = Math.round(Math.min(420, Math.max(220, W * 0.38)));
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.replaceChildren();
+  const padL = 8, padR = 8, padT = 26, padB = 30;
+  const lo = Math.min(50, Math.floor((Math.min(...readings, 999) - BIN) / BIN) * BIN);
+  const hi = Math.max(130, Math.ceil((Math.max(...readings, 0) + BIN) / BIN) * BIN);
+  const bins = (hi - lo) / BIN, plotW = W - padL - padR, plotH = H - padT - padB;
+  const binW = plotW / bins, x = (v) => padL + (v - lo) / (hi - lo) * plotW, base = padT + plotH;
+  const counts = new Array(bins).fill(0);
+  for (const r of readings) counts[Math.min(bins - 1, Math.max(0, Math.floor((r - lo) / BIN)))]++;
+  const rows = counts.map((n, i) => [lo + i * BIN, n]).filter(([, n]) => n);
+  $('table').tBodies[0].replaceChildren(...rows.map(([from, n]) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${from}–${from + BIN - 1}</td><td>${n}</td>`;
+    return tr;
+  }));
+  const tallest = Math.max(1, ...counts);
+  const rad = Math.max(4, Math.min(binW * 0.4, (plotH / tallest) / 2 - 1, 16));
+
+  const surface = cssVar('--ground'), mark = cssVar('--mark'), rule = cssVar('--rule'), ink = cssVar('--ink');
+  el('line', { x1: padL, x2: W - padR, y1: base + 0.5, y2: base + 0.5, stroke: rule, 'stroke-width': 1 }, svg);
+  for (let v = Math.ceil(lo / 10) * 10; v <= hi; v += 10) {
+    el('line', { x1: x(v), x2: x(v), y1: base, y2: base + 5, stroke: rule, 'stroke-width': 1 }, svg);
+    el('text', { x: x(v), y: base + 20, 'text-anchor': 'middle' }, svg).textContent = v;
+  }
+  if (!readings.length) {
+    el('text', { x: W / 2, y: padT + plotH / 2, 'text-anchor': 'middle', class: 'empty' }, svg)
+      .textContent = 'Dots appear here as people get a reading.';
+    return;
+  }
+  if (median !== null) {
+    el('line', { x1: x(median), x2: x(median), y1: padT - 6, y2: base, stroke: ink, 'stroke-width': 1 }, svg);
+    el('text', { x: x(median), y: padT - 12, 'text-anchor': 'middle', style: `fill:${ink}` }, svg)
+      .textContent = `median ${Math.round(median)}`;
+  }
+  counts.forEach((n, i) => {
+    const cx = padL + (i + 0.5) * binW;
+    for (let k = 0; k < n; k++) {
+      el('circle', { cx, cy: base - rad - 1 - k * (2 * rad + 2), r: rad, fill: mark, stroke: surface, 'stroke-width': 2 }, svg);
+    }
+    // Hover target: the whole column, bigger than the dots.
+    const from = lo + i * BIN;
+    const hit = el('rect', { x: padL + i * binW, y: padT, width: binW, height: plotH, fill: 'transparent' }, svg);
+    hit.addEventListener('pointermove', (e) => tip('histTip', svg.parentNode,
+      `${from}–${from + BIN - 1} bpm · ${n} ${n === 1 ? 'person' : 'people'}`, e.clientX, e.clientY));
+    hit.addEventListener('pointerleave', () => tip('histTip', svg.parentNode, ''));
+  });
+}
+
+// ------------------------------------------------------------ pulse checks
+
+function drawChecks(checks) {
+  $('checksFig').hidden = !checks.length;
+  $('charts').classList.toggle('single', !checks.length);
+  if (!checks.length) return;
+  const diffs = checks.map(([tapped, camera]) => Math.abs(tapped - camera)).sort((a, b) => a - b);
+  const close = diffs.filter(d => d <= 5).length;
+  const mid = diffs[Math.floor(diffs.length / 2)];
+  $('checksText').textContent = `${checks.length} pulse check${checks.length === 1 ? '' : 's'}. `
+    + `Camera within 5 bpm of the finger for ${close} of ${checks.length}; typical gap ${Math.round(mid)} bpm. `
+    + 'Dots on the diagonal agree exactly.';
+
+  const svg = $('scatter');
+  const S = Math.max(240, svg.clientWidth || 360);
+  svg.setAttribute('viewBox', `0 0 ${S} ${S}`);
+  svg.replaceChildren();
+  const pad = 34, plot = S - pad - 10;
+  const all = checks.flat();
+  const lo = Math.min(50, Math.floor((Math.min(...all) - 5) / 10) * 10);
+  const hi = Math.max(120, Math.ceil((Math.max(...all) + 5) / 10) * 10);
+  const sx = (v) => pad + (v - lo) / (hi - lo) * plot, sy = (v) => 10 + plot - (v - lo) / (hi - lo) * plot;
+  const surface = cssVar('--ground'), mark = cssVar('--mark'), rule = cssVar('--rule'), muted = cssVar('--muted');
+
+  // ±5 bpm agreement band, then the diagonal.
+  el('polygon', { points: [[lo, lo + 5], [hi - 5, hi], [hi, hi], [hi, hi - 5], [lo + 5, lo], [lo, lo]]
+    .map(([a, b]) => `${sx(a)},${sy(b)}`).join(' '), fill: muted, 'fill-opacity': 0.1 }, svg);
+  el('line', { x1: sx(lo), y1: sy(lo), x2: sx(hi), y2: sy(hi), stroke: rule, 'stroke-width': 1 }, svg);
+  el('line', { x1: pad, x2: pad + plot, y1: 10 + plot + 0.5, y2: 10 + plot + 0.5, stroke: rule }, svg);
+  el('line', { x1: pad - 0.5, x2: pad - 0.5, y1: 10, y2: 10 + plot, stroke: rule }, svg);
+  for (let v = lo; v <= hi; v += 20) {
+    el('text', { x: sx(v), y: 10 + plot + 18, 'text-anchor': 'middle' }, svg).textContent = v;
+    el('text', { x: pad - 6, y: sy(v) + 4, 'text-anchor': 'end' }, svg).textContent = v;
+  }
+  el('text', { x: pad + plot, y: 10 + plot - 6, 'text-anchor': 'end' }, svg).textContent = 'finger →';
+  el('text', { x: pad + 6, y: 22 }, svg).textContent = '↑ camera';
+  for (const [tapped, camera] of checks) {
+    const dot = el('circle', { cx: sx(tapped), cy: sy(camera), r: 6, fill: mark, stroke: surface, 'stroke-width': 2 }, svg);
+    const hit = el('circle', { cx: sx(tapped), cy: sy(camera), r: 14, fill: 'transparent' }, svg);
+    hit.addEventListener('pointermove', (e) => tip('scatterTip', svg.parentNode,
+      `finger ${Math.round(tapped)} · camera ${Math.round(camera)} bpm`, e.clientX, e.clientY));
+    hit.addEventListener('pointerleave', () => tip('scatterTip', svg.parentNode, ''));
+  }
+}
+
+// ------------------------------------------------------------ data
+
+let last = null;
+async function poll() {
+  try {
+    const res = await fetch('/api/class', { cache: 'no-store' });
+    if (!res.ok) throw new Error(res.status);
+    last = await res.json();
+    render(last);
+    $('status').textContent = 'Live. Nothing here identifies anyone: one dot per connected camera.';
+    $('status').classList.remove('bad');
+  } catch (e) {
+    $('status').textContent = 'Lost the connection to the server. Retrying…';
+    $('status').classList.add('bad');
+  }
+  setTimeout(poll, 1000);
+}
+
+function render(d) {
+  const r = d.readings;
+  $('connected').textContent = d.connected;
+  $('reading').textContent = r.length;
+  $('median').textContent = d.median === null ? '–' : Math.round(d.median);
+  $('range').textContent = r.length ? `${Math.round(r[0])}–${Math.round(r[r.length - 1])}` : '–';
+  drawChecks(d.checks);
+  drawHistogram(r, d.median);
+}
+
+window.addEventListener('resize', () => last && render(last));
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => last && render(last));
+poll();
+</script>
+</body>
+</html>

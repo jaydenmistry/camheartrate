@@ -46,6 +46,10 @@ Environment variables (Dokploy: *Environment* tab):
 
 **What students see.** A bar along the bottom of the camera fills until the first reading, and a four-bar meter under the number shows signal quality. The status line names the one thing most worth fixing: *Hold still and stay quiet*, *Move closer to the camera*, *Not enough light…*, or *Too much light on your skin…*. Where the camera allows it (mostly Chrome on Windows, Linux and Android), exposure and white balance are held fixed 2 s after the camera starts or the screen light is toggled, so the camera stops repainting the skin it is measuring. The page then shows *exposure held*. To leave the laptop free for the video, face tracking runs 15 times a second, and the search for a hand runs 4 times a second until one appears. The skin itself is measured on every frame.
 
+**Pulse check.** *Check with your pulse* asks students to find their pulse on the wrist or neck and tap a button (or the space bar) on every beat for 15 s. The page then compares the tapped rate with the camera's. While they tap, the camera's number and graph are blurred and the beat flash stops, so neither can lead the tapping. The tapped rate comes from the median gap between taps, which ignores a missed or doubled tap.
+
+**Class view.** Put `https://your-domain/class` on the projector. It shows how many people are connected and how many have a reading, the median and range, one dot per person grouped in 5 bpm steps, and a QR code to join. Once people run pulse checks, a second chart plots camera against finger for every check, with a ±5 bpm band around perfect agreement. Nothing identifies anyone. With several workers, each one writes its visitors' latest readings to a file in `RPPG_CLASS_DIR` (default `/tmp/rppg-class`, shared by the workers in one container) once a second, and the class view combines them. Readings older than 5 s drop out; checks stay until the server restarts.
+
 **Differences from the local version.** The local version (`RPPG_SOURCE=camera`, the default) reads this Mac's camera through AVFoundation at up to 60 fps with hardware timestamps, and can also measure any exposed skin, such as an arm. In the browser, cameras usually give 30 fps, timestamps come from the browser, and only the face and palm are tracked. Tap the face or palm to lock onto it. The keyboard demo controls (`1` `2` `3`, `S`, arrows) work locally, and on the deployed site for the presenter link only.
 
 The page loads MediaPipe from cdn.jsdelivr.net and its models from storage.googleapis.com. A network that blocks either shows "Could not load the tracking models".
@@ -129,6 +133,8 @@ A 15 s rolling buffer of `(t, R̄, Ḡ, B̄)` samples, one triple per skin patch
 
 ### Suggested lecture demo
 
+With the deployed site, open `https://your-domain/?presenter=<key>` on your laptop and `https://your-domain/class` on the projector. Ask everyone to scan the QR code, hold still for 15 s, then press *Check with your pulse*. Watch the dots fill in and land on the diagonal.
+
 1. Start on the webcam with POS. Sit still under steady light, wait for the solid outline, and compare with a pulse oximeter or a finger on the wrist. Hold up a palm and watch it switch.
 2. Press `S` for the simulation, then `→` until movement is ~80 %. The status line shows the true rate.
 3. Press `1` (POS): the reading stays within ~1 bpm of the truth.
@@ -149,8 +155,10 @@ The full DSP output (BVP waveform, spectrum, RGB traces, SQI, RMSSD) is still st
 | `rppg_pipeline.py` | measure and track threads; sends the mirrored outline as polygons |
 | `app.py` | FastAPI server, `/ws` WebSocket (binary JPEG + JSON telemetry, JSON commands back) |
 | `rppg_session.py` | deployed mode: one DSP engine per browser, fed with that browser's skin-patch averages; its own simulation |
+| `rppg_class.py` | deployed mode: everyone's latest reading and pulse checks, pooled across worker processes for the class view |
 | `static/index.html` | the app page: camera, skin outline, heart rate, one-minute graph (plain HTML/CSS/canvas) |
 | `static/browser.js` | deployed mode: the visitor's camera, MediaPipe face/hand tracking, region choice, per-frame skin averaging |
+| `static/class.html` | projector view at `/class`: connected count, everyone's heart rate, pulse checks, QR code to join |
 | `Dockerfile`, `requirements-web.txt` | the deployable server (browser mode) |
 | `test_dsp.py` | 11 self-tests: 72.0 ± 1.0 BPM through motion spikes (30 and 60 Hz), full 60–160 range, harmonic guard, patch fusion, motion bursts, steady first reading |
 

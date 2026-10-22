@@ -16,7 +16,7 @@ WORKDIR /app
 COPY requirements-web.txt .
 RUN pip install -r requirements-web.txt
 
-COPY app.py rppg_dsp.py rppg_session.py rppg_synthetic.py ./
+COPY app.py rppg_class.py rppg_dsp.py rppg_session.py rppg_synthetic.py ./
 COPY static ./static
 
 RUN useradd --create-home --uid 10001 app

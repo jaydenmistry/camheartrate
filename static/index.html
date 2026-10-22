@@ -133,6 +133,20 @@
   .link:hover { text-decoration-color: var(--ink); }
   .link:focus-visible { outline: 2px solid var(--blood); outline-offset: 3px; border-radius: 2px; }
 
+  /* ---- pulse check ---- */
+  .check { display: grid; gap: 12px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 14px; }
+  .check p { margin: 0; }
+  .check-row { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; }
+  .tap {
+    font: inherit; font-size: 17px; font-weight: 600; color: #fff; background: var(--blood);
+    border: 0; border-radius: 999px; padding: 14px 28px; cursor: pointer;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none; transition: transform 0.08s;
+  }
+  .tap.hit { transform: scale(0.93); }
+  .tap:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  /* While tapping, the camera's number is hidden so it cannot lead the tapping. */
+  .readout[data-blind] .bpm, .readout[data-blind] .trend canvas { filter: blur(18px); }
+
   /* ---- readout ---- */
   .readout {
     display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 28px; align-items: end;
@@ -189,6 +203,7 @@
       <span class="status-hint" id="statusHint"></span>
     </div>
     <div class="controls">
+      <button class="link" id="checkBtn" hidden>Check with your pulse</button>
       <button class="link" id="autoBtn" hidden>Pick skin automatically</button>
       <span class="mode" id="mode"></span>
       <button class="link" id="camBtn" hidden></button>
@@ -196,6 +211,14 @@
       <button class="link" id="fullBtn" hidden>Full screen</button>
     </div>
   </div>
+
+  <section class="check" id="check" hidden aria-live="polite">
+    <p id="checkText"></p>
+    <div class="check-row">
+      <button class="tap" id="tapBtn">Tap on each beat</button>
+      <button class="link" id="checkClose">Cancel</button>
+    </div>
+  </section>
 
   <section class="readout" aria-label="Heart rate">
     <div class="reading">
@@ -297,7 +320,9 @@ $('camBtn').onclick = () => {
 
 // Demo controls stay off screen: 1/2/3 method, S simulation, arrows tune the simulation.
 document.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey || !st.tele) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (chk.on && !chk.done && e.key === ' ') { e.preventDefault(); if (!e.repeat) tapBeat(); return; }
+  if (!st.tele) return;
   const t = st.tele, sim = t.synthetic;
   if (mode === 'browser' && !t.presenter) return;
   const methods = { '1': 'POS', '2': 'CHROM', '3': 'GREEN' };
@@ -326,6 +351,88 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
+
+// ------------------------------------------------------------- pulse check
+// Tap along with a finger on your wrist or neck and compare with the camera.
+const CHECK_S = 15;
+const chk = { on: false, done: false, taps: [], camera: [], timer: 0 };
+const readoutEl = document.querySelector('.readout');
+const round = Math.round;
+
+function startCheck() {
+  clearTimeout(chk.timer);
+  Object.assign(chk, { on: true, done: false, taps: [], camera: [] });
+  $('check').hidden = false;
+  $('tapBtn').hidden = false;
+  $('checkClose').textContent = 'Cancel';
+  $('checkText').textContent = 'Find your pulse on your wrist or neck. Tap the button, or press the space bar, '
+    + `on every beat for ${CHECK_S} seconds.`;
+  readoutEl.dataset.blind = '';
+  $('tapBtn').focus();
+}
+
+function closeCheck() {
+  clearTimeout(chk.timer);
+  chk.on = false;
+  $('check').hidden = true;
+  delete readoutEl.dataset.blind;
+}
+
+function tapBeat() {
+  if (!chk.on || chk.done) return;
+  const now = performance.now();
+  chk.taps.push(now);
+  if (chk.taps.length === 1) chk.timer = setTimeout(finishCheck, CHECK_S * 1000);
+  const rate = tappedRate(chk.taps), n = chk.taps.length;
+  const left = Math.max(1, Math.ceil(CHECK_S - (now - chk.taps[0]) / 1000));
+  $('checkText').textContent = `${n} beat${n === 1 ? '' : 's'}${rate ? `, about ${round(rate)} bpm` : ''}. `
+    + `Keep going for ${left} more second${left === 1 ? '' : 's'}.`;
+  $('tapBtn').classList.add('hit');
+  setTimeout(() => $('tapBtn').classList.remove('hit'), 90);
+}
+
+// Rate from the median gap between taps; gaps that look like a doubled or
+// missed tap (faster than 220 or slower than 30 bpm) are dropped.
+function tappedRate(taps) {
+  const gaps = [];
+  for (let i = 1; i < taps.length; i++) {
+    const g = (taps[i] - taps[i - 1]) / 1000;
+    if (g >= 0.27 && g <= 2.0) gaps.push(g);
+  }
+  return gaps.length < 5 ? null : 60 / median(gaps);
+}
+
+function median(xs) {
+  const v = xs.slice().sort((a, b) => a - b), m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+function finishCheck() {
+  chk.done = true;
+  $('tapBtn').hidden = true;
+  $('checkClose').textContent = 'Close';
+  delete readoutEl.dataset.blind;
+  const tapped = tappedRate(chk.taps);
+  const camera = chk.camera.length ? median(chk.camera) : null;
+  let text;
+  if (!tapped) {
+    text = 'Not enough steady taps to work out your pulse. Try again, tapping on every beat.';
+  } else if (camera === null) {
+    text = `You tapped ${round(tapped)} bpm. The camera had no steady reading meanwhile, so hold still and try again.`;
+  } else {
+    const gap = Math.abs(tapped - camera);
+    text = `You tapped ${round(tapped)} bpm and the camera read ${round(camera)} bpm: `
+      + (gap <= 5 ? 'a good match.' : gap <= 10 ? `${round(gap)} bpm apart, close.`
+         : `${round(gap)} bpm apart. Hold still, add light and try again.`);
+    if (mode === 'browser') send({ type: 'check', tapped, camera });
+  }
+  $('checkText').textContent = text;
+}
+
+$('checkBtn').onclick = startCheck;
+$('checkClose').onclick = closeCheck;
+// pointerdown, not click: it fires the instant a finger lands, and the space bar is handled above.
+$('tapBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); tapBeat(); });
 
 // ------------------------------------------------------------- status
 function setStatus(phase, main, hint) {
@@ -402,6 +509,7 @@ function render(t) {
   setStatus(phase, main, hint);
   stage.dataset.phase = phase;
   $('autoBtn').hidden = !(t.region && t.region.locked);
+  $('checkBtn').hidden = !(t.source === 'camera' && t.region) || (chk.on && !chk.done);
 
   const cam = t.camera, cams = t.cameras || [];
   $('mode').textContent = cam ? `${cam.height}p at ${Math.round(cam.fps)} fps${cam.held ? ', exposure held' : ''}` : '';
@@ -431,6 +539,7 @@ function render(t) {
   bpmEl.textContent = live ? Math.round(t.bpm) : '–';
   bpmEl.dataset.quality = !live ? 'none' : t.status === 'HIGH MOTION NOISE' ? 'poor' : 'good';
   st.hr = live && t.status !== 'HIGH MOTION NOISE' ? t.bpm : null;
+  if (chk.on && !chk.done && chk.taps.length && st.hr) chk.camera.push(st.hr);
 
   if (t.notice) {
     if (st.noticeId !== null && t.notice.id !== st.noticeId && t.notice.text) toast(t.notice.text);
@@ -535,7 +644,7 @@ function frame(ts) {
   const dt = Math.min(0.1, (ts - lastTs) / 1000); lastTs = ts;
   if (st.dirty) { render(current()); st.dirty = false; }
   let beat = 0;
-  if (st.hr && !reduceMotion && !light) {
+  if (st.hr && !reduceMotion && !light && !chk.on) {
     st.phase = (st.phase + dt * st.hr / 60) % 1;
     beat = st.phase < 0.12 ? st.phase / 0.12 : Math.exp(-(st.phase - 0.12) * 7);   // fast rise, slow fall
   }
