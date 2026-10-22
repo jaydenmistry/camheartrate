@@ -11,10 +11,13 @@ Client -> server (JSON):
       t in seconds on the browser's clock, one (r, g, b) per skin patch.
       A new `gen` means a new skin region: the measurement restarts.
   {"type": "algorithm", "value": "CHROM"}
-  {"type": "source", "value": "synthetic" | "camera"}
+  {"type": "source", "value": "synthetic" | "camera"}     simulation: presenter only
   {"type": "synthetic", "bpm": 90, "motion": 0.5}
   {"type": "reset"}
 Server -> client: JSON telemetry; in the simulation also a binary JPEG per frame.
+
+The DSP and the simulation's rendering run in worker threads, so one busy
+visitor does not hold up the event loop that serves everyone else.
 """
 
 from __future__ import annotations
@@ -42,8 +45,9 @@ FS_RANGE = (10.0, 60.0)     # sampling rates a browser may ask for
 
 
 class BrowserSession:
-    def __init__(self, websocket: WebSocket):
+    def __init__(self, websocket: WebSocket, presenter: bool = False):
         self.ws = websocket
+        self.presenter = presenter          # may run the simulation (it streams video, so it costs more)
         self.source = "camera"
         self.engine = RPPGEngine()
         self.gen: int | None = None
@@ -51,6 +55,7 @@ class BrowserSession:
         self.renderer = SyntheticRenderer()
         self.synth_pixels = roi_pixel_count()
         self._send_lock = asyncio.Lock()
+        self._dsp = asyncio.Lock()          # one engine operation at a time
         self._synth_task: asyncio.Task | None = None
 
     async def run(self) -> None:
@@ -74,16 +79,20 @@ class BrowserSession:
         if kind == "samples":
             if self.source != "camera":
                 return
-            self._add_samples(msg)
-            self.engine.update()
+            async with self._dsp:
+                self._add_samples(msg)
+                await asyncio.to_thread(self.engine.update)
         elif kind == "algorithm":
-            self.engine.set_algorithm(str(msg["value"]))
+            async with self._dsp:
+                self.engine.set_algorithm(str(msg["value"]))
         elif kind == "source":
-            self._set_source(str(msg["value"]))
+            async with self._dsp:
+                self._set_source(str(msg["value"]))
         elif kind == "synthetic":
             self.synth.set_params(bpm=_number(msg.get("bpm")), motion=_number(msg.get("motion")))
         elif kind == "reset":
-            self.engine.reset()
+            async with self._dsp:
+                self.engine.reset()
         else:
             return
         if self.source == "camera":
@@ -110,6 +119,8 @@ class BrowserSession:
         if source == self.source:
             return
         if source == "synthetic":
+            if not self.presenter:
+                raise ValueError("the simulation is for the presenter")
             self.source = "synthetic"
             self.engine = RPPGEngine(algorithm=self.engine.algorithm, fs=SYNTH_FPS)
             self._synth_task = asyncio.create_task(self._synthetic_loop())
@@ -141,21 +152,28 @@ class BrowserSession:
                     step += 1.0 / SYNTH_FPS
                 next_t += step
 
-                rgb = self.synth.sample(t)
-                self.engine.add_sample(t, *rgb)
-                self.engine.update(t)
-                frame, outline = self.renderer.render(rgb, self.synth.last_motion)
-                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-                tele = self._telemetry()
-                h, w = frame.shape[:2]
-                tele.update({"synthetic": self.synth.truth, "frame": [w, h], "roi_pixels": self.synth_pixels,
-                             "noise_reduction": round(math.sqrt(self.synth_pixels), 1),
-                             "region": {"kind": "simulated", "locked": False, "outline": outline}})
-                if ok:
-                    await self._send_bytes(buf.tobytes())
+                async with self._dsp:
+                    if self.source != "synthetic":
+                        break
+                    jpeg, tele = await asyncio.to_thread(self._synthetic_frame, t)
+                if jpeg is not None:
+                    await self._send_bytes(jpeg)
                 await self._send_text(tele)
         except (WebSocketDisconnect, RuntimeError):
             pass
+
+    def _synthetic_frame(self, t: float) -> tuple[bytes | None, dict]:
+        rgb = self.synth.sample(t)
+        self.engine.add_sample(t, *rgb)
+        self.engine.update(t)
+        frame, outline = self.renderer.render(rgb, self.synth.last_motion)
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+        tele = self._telemetry()
+        h, w = frame.shape[:2]
+        tele.update({"synthetic": self.synth.truth, "frame": [w, h], "roi_pixels": self.synth_pixels,
+                     "noise_reduction": round(math.sqrt(self.synth_pixels), 1),
+                     "region": {"kind": "simulated", "locked": False, "outline": outline}})
+        return (buf.tobytes() if ok else None), tele
 
     def _stop_synthetic(self) -> None:
         if self._synth_task is not None:
@@ -167,6 +185,7 @@ class BrowserSession:
     def _telemetry(self) -> dict:
         tele = self.engine.telemetry(waveforms=False)
         tele["source"] = self.source
+        tele["presenter"] = self.presenter
         return tele
 
     async def _send_text(self, tele: dict) -> None:

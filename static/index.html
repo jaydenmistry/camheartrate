@@ -103,6 +103,12 @@
     backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  /* Progress to the first reading, along the bottom edge of the camera. */
+  .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgb(255 255 255 / 0.2); }
+  .progress span {
+    display: block; height: 100%; width: calc(var(--p, 0) * 100%);
+    background: var(--blood); transition: width 0.3s linear;
+  }
 
   /* ---- status line ---- */
   .status {
@@ -145,6 +151,12 @@
   }
   .bpm[data-quality="poor"], .bpm[data-quality="none"] { color: var(--muted); }
   .unit { color: var(--muted); font-size: 15px; margin-top: 6px; }
+  .signal { display: flex; align-items: flex-end; gap: 7px; color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+  .bars i { width: 4px; border-radius: 1px; background: var(--rule); }
+  .bars i:nth-child(1) { height: 4px; } .bars i:nth-child(2) { height: 7px; }
+  .bars i:nth-child(3) { height: 10px; } .bars i:nth-child(4) { height: 12px; }
+  .bars i.on { background: var(--ink); }
   .trend { display: grid; gap: 4px; min-width: 0; }
   .trend canvas { width: 100%; height: clamp(120px, 17vh, 170px); display: block; }
   .trend-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; padding-right: 34px; }
@@ -167,6 +179,7 @@
     <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><path id="roi" class="roi" d=""/></svg>
     <div class="placeholder" id="placeholder">Starting the camera…</div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="progress" id="progress" hidden><span></span></div>
   </div>
 
   <div class="status" id="status" data-phase="none">
@@ -188,6 +201,7 @@
     <div class="reading">
       <output class="bpm" id="bpm" data-quality="none" aria-live="off">–</output>
       <span class="unit">beats per minute</span>
+      <span class="signal" id="signal" hidden><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span><span id="signalText">signal</span></span>
     </div>
     <div class="trend">
       <canvas id="trend" aria-label="Heart rate over the last minute"></canvas>
@@ -202,6 +216,10 @@ const stage = $('stage'), video = $('video'), roi = $('roi'), statusEl = $('stat
 const LABEL = { face: 'your face', palm: 'your palm', skin: 'the outlined skin', simulated: 'the simulated face' };
 const METHOD = { POS: 'POS', CHROM: 'CHROM', GREEN: 'raw green channel' };
 const HISTORY_S = 60, SAMPLE_MS = 500;
+const MIN_SKIN_AREA = 0.004;    // skin smaller than this share of the picture: too far away
+const MIN_BRIGHTNESS = 40;      // mean skin luma (0-255) below this: too little light
+// A deployed page only offers the demo keys to the presenter: open it with ?presenter=<RPPG_PRESENTER_KEY>.
+const PRESENTER_KEY = new URLSearchParams(location.search).get('presenter') || '';
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const st = { tele: null, dirty: false, ar: null, noticeId: null, hr: null, phase: 0, history: [], lastSample: 0 };
@@ -229,13 +247,15 @@ function setLight(on, announce) {
   $('lightBtn').textContent = on ? 'Turn screen light off' : 'Turn screen light on';
   try { localStorage.setItem('screenLight', on ? 'on' : 'off'); } catch (e) { /* ignore */ }
   if (announce) toast(on ? 'Screen light on. Turn your display brightness all the way up.' : 'Screen light off');
+  if (announce && browserCam) browserCam.settle();      // the light on the skin changed
   drawTrend();
 }
 
 // ------------------------------------------------------------- connection
 let ws = null;
 function connect() {
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  const query = PRESENTER_KEY ? `?presenter=${encodeURIComponent(PRESENTER_KEY)}` : '';
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws${query}`);
   ws.binaryType = 'blob';
   ws.onopen = () => { st.connected = true; };
   ws.onclose = () => { st.connected = false; st.dirty = true; setStatus('warning', 'Lost the connection to the server. Retrying…', ''); setTimeout(connect, 1000); };
@@ -279,6 +299,7 @@ $('camBtn').onclick = () => {
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || !st.tele) return;
   const t = st.tele, sim = t.synthetic;
+  if (mode === 'browser' && !t.presenter) return;
   const methods = { '1': 'POS', '2': 'CHROM', '3': 'GREEN' };
   if (methods[e.key]) {
     send({ type: 'algorithm', value: methods[e.key] });
@@ -313,26 +334,53 @@ function setStatus(phase, main, hint) {
   $('statusHint').textContent = hint;
 }
 
+// The one thing most worth fixing right now, judged from what the camera sees.
+function problem(t) {
+  if (t.source !== 'camera' || !t.region) return '';
+  if (t.moving) return 'Hold still and stay quiet.';
+  if (t.roi_pixels && t.frame && t.roi_pixels / (t.frame[0] * t.frame[1]) < MIN_SKIN_AREA) {
+    return 'Move closer to the camera.';
+  }
+  if (t.brightness != null && t.brightness < MIN_BRIGHTNESS) {
+    return light ? 'Not enough light. Turn your screen brightness all the way up.'
+                 : 'Not enough light. Turn the screen light on, or face a lamp.';
+  }
+  if (t.clipped > 0.25) return 'Too much light on your skin. Move back from the light a little.';
+  return '';
+}
+
 function describe(t) {
   const label = LABEL[t.region?.kind] || 'your skin';
   if (t.message) return ['warning', t.message, ''];
   if (t.source === 'idle') return ['none', t.loading || 'Starting the camera…', ''];
-  const glare = t.clipped > 0.25 ? 'Part of the skin is overexposed. Move back from the light a little.' : '';
-  const hint = t.source === 'camera' && !t.region?.locked ? 'Tap any skin to measure there.' : '';
+  const issue = problem(t);
+  const hint = t.source !== 'camera' || t.region?.locked ? ''
+    : mode === 'browser' ? 'Tap your face or palm to measure there.' : 'Tap any skin to measure there.';
   const truth = t.synthetic ? ` True rate ${Math.round(t.synthetic.bpm_actual ?? t.synthetic.bpm)} bpm.` : '';
   switch (t.status) {
-    case 'NO SKIN': return ['none', 'Show your face, palm or arm to the camera.', ''];
+    case 'NO SKIN': return ['none', mode === 'browser' ? 'Show your face or palm to the camera.'
+                                                     : 'Show your face, palm or arm to the camera.', ''];
     case 'CALIBRATING': {
+      if (issue) return ['warning', issue, ''];
       const left = Math.max(1, Math.ceil((t.min_buffer_s || 5) - (t.buffer_s || 0)));
       return ['measuring', `Measuring ${label}. Hold still for ${left} more second${left === 1 ? '' : 's'}.`, ''];
     }
-    case 'LOCKED': return ['locked', `Reading ${label}.${truth}`, glare || hint];
-    case 'WEAK SIGNAL': return ['locked', `Weak signal from ${label}. More light will help.${truth}`, glare || hint];
-    case 'HIGH MOTION NOISE': return t.moving
-      ? ['warning', 'Too much movement. Hold still.', hint]
-      : ['warning', `Weak signal from ${label}. Add light or move a little closer.`, glare || hint];
+    case 'LOCKED': return ['locked', `Reading ${label}.${truth}`, issue || hint];
+    case 'WEAK SIGNAL': return issue ? ['warning', issue, '']
+      : ['locked', `Weak signal from ${label}. More light will help.${truth}`, hint];
+    case 'HIGH MOTION NOISE': return issue ? ['warning', issue, hint]
+      : ['warning', t.bpm === null ? 'Almost there. Keep still.'
+                                   : `Weak signal from ${label}. Add light or move a little closer.`, hint];
     default: return ['none', 'Connecting…', ''];
   }
+}
+
+// How far along the first reading is: the buffer filling (to 70 %), then the
+// signal quality rising towards a lock. Null once there is a reading.
+function progressOf(t) {
+  if (t.message || t.source === 'idle' || !t.region || t.bpm !== null || !t.status || t.status === 'NO SKIN') return null;
+  const fill = Math.min(1, (t.buffer_s || 0) / (t.min_buffer_s || 5));
+  return t.status === 'CALIBRATING' ? 0.7 * fill : 0.7 + 0.3 * Math.min(1, (t.sqi || 0) / 50);
 }
 
 // ------------------------------------------------------------- render
@@ -356,13 +404,26 @@ function render(t) {
   $('autoBtn').hidden = !(t.region && t.region.locked);
 
   const cam = t.camera, cams = t.cameras || [];
-  $('mode').textContent = cam ? `${cam.height}p at ${Math.round(cam.fps)} fps` : '';
+  $('mode').textContent = cam ? `${cam.height}p at ${Math.round(cam.fps)} fps${cam.held ? ', exposure held' : ''}` : '';
   const other = cam && cams.find(c => c.id !== cam.id);
   $('camBtn').hidden = !other;
   if (other) {
     $('camBtn').dataset.id = other.id;
     $('camBtn').dataset.name = other.name;
     $('camBtn').textContent = `Use ${other.name}${other.fps > cam.fps ? ` (${Math.round(other.fps)} fps)` : ''}`;
+  }
+
+  const p = progressOf(t);
+  $('progress').hidden = p === null;
+  if (p !== null) $('progress').style.setProperty('--p', p.toFixed(3));
+
+  // Signal quality, once there is enough data to judge it.
+  const judged = t.region && t.status && !['CALIBRATING', 'NO SKIN'].includes(t.status) && !t.message;
+  $('signal').hidden = !judged;
+  if (judged) {
+    const sqi = t.sqi || 0, level = sqi < 30 ? 0 : sqi < 40 ? 1 : sqi < 50 ? 2 : sqi < 70 ? 3 : 4;
+    [...$('bars').children].forEach((bar, i) => bar.classList.toggle('on', i < level));
+    $('signalText').textContent = ['no signal', 'weak signal', 'fair signal', 'good signal', 'strong signal'][level];
   }
 
   const live = t.bpm !== null && ['LOCKED', 'WEAK SIGNAL', 'HIGH MOTION NOISE'].includes(t.status);

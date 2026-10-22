@@ -16,7 +16,13 @@ const LEFT_MALAR = [117, 118, 101, 36, 205, 187, 123];
 const RIGHT_MALAR = [346, 347, 330, 266, 425, 411, 352];
 const PALM = [0, 1, 5, 9, 13, 17];          // wrist, thumb base, the four knuckles
 
-const TRACK_HZ = 30;
+// Tracking is the heavy part and runs on the page's main thread, where it can
+// delay frames. The skin is still measured on every frame; the outline only
+// needs to keep up with a person sitting still. Looking for a hand that is not
+// there (MediaPipe's palm detector) is the most expensive step, so it is rare.
+const TRACK_HZ = 15;
+const HAND_SEARCH_HZ = 4;
+const SETTLE_MS = 2000;         // auto exposure / white balance settle this long before they are held
 const SEND_EVERY_MS = 100;
 const MIN_PATCH_PIXELS = 150;
 const CLIP_LEVEL = 250;         // a channel at or above this is saturated: no pulse left in it
@@ -216,6 +222,7 @@ export class BrowserCamera {
     this.message = '';
     this.loading = 'Starting the camera…';
     this.mode = null;
+    this.held = false;              // exposure / white balance held fixed
     this.cameras = [];
     this.gen = 0;
     this.canvas = document.createElement('canvas');
@@ -231,12 +238,13 @@ export class BrowserCamera {
     this.roi = null;
     this.shown = null;
     this.clipped = 0;
+    this.brightness = null;
     this.motion = 0;
     this.lastCentre = null;
     this.batch = [];
     this.lastFlush = 0;
     this.lastTrack = -Infinity;
-    this.cycle = 0;
+    this.lastHandSearch = -Infinity;
   }
 
   async start() {
@@ -314,7 +322,40 @@ export class BrowserCamera {
     this.resetTracking();
     if (this.ready) this.restartLoop();         // frame callbacks belong to the old stream
     this.onChange();
+    this.settle();
     return true;
+  }
+
+  // Let auto exposure and white balance settle under the current light, then
+  // hold them, so the camera stops repainting the skin it is measuring. Only
+  // where the camera allows it (mostly Chrome on Windows, Linux and Android);
+  // elsewhere POS's per-window normalisation has to absorb the adjustments.
+  async settle() {
+    const track = this.stream && this.stream.getVideoTracks()[0];
+    const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+    const can = (key) => (caps[key] || []).includes('manual') && (caps[key] || []).includes('continuous');
+    const keys = ['exposureMode', 'whiteBalanceMode'].filter(can);
+    this.held = false;
+    if (!keys.length) return;
+    const token = this.settling = (this.settling || 0) + 1;
+    try {
+      await track.applyConstraints({ advanced: [Object.fromEntries(keys.map(k => [k, 'continuous']))] });
+    } catch (e) { return; }
+    this.onChange();
+    await new Promise(r => setTimeout(r, SETTLE_MS));
+    if (token !== this.settling || track.readyState !== 'live') return;    // superseded or switched
+    const now = track.getSettings(), hold = Object.fromEntries(keys.map(k => [k, 'manual']));
+    if (hold.exposureMode && now.exposureTime) hold.exposureTime = now.exposureTime;
+    if (hold.whiteBalanceMode && now.colorTemperature) hold.colorTemperature = now.colorTemperature;
+    try {
+      await track.applyConstraints({ advanced: [hold] });
+      this.held = true;
+    } catch (e) {
+      console.warn('could not hold the camera settings', e);
+    }
+    this.flush();
+    this.gen += 1;                              // the picture just changed: start the measurement over
+    this.onChange();
   }
 
   async switchTo(deviceId) {
@@ -392,9 +433,13 @@ export class BrowserCamera {
       sums[k] += r; sums[k + 1] += g; sums[k + 2] += b;
       counts[l - 1]++;
     }
-    let total = 0;
-    for (const c of counts) total += c;
+    let total = 0, luma = 0;
+    for (let p = 0; p < patches; p++) {
+      total += counts[p];
+      luma += 0.299 * sums[p * 3] + 0.587 * sums[p * 3 + 1] + 0.114 * sums[p * 3 + 2];
+    }
     this.clipped = 1 - total / Math.max(roi.pixels, 1);
+    this.brightness = total ? luma / total : null;
     if (counts.some(c => c < MIN_PATCH_PIXELS)) return;
     const row = [Math.round(t * 1e4) / 1e4];
     for (let p = 0; p < patches; p++) {
@@ -420,7 +465,8 @@ export class BrowserCamera {
     const face = this.face.detectForVideo(this.video, ts);
     const faceLm = this.faceSmooth.filter(face.faceLandmarks && face.faceLandmarks[0]
       ? toPixels(face.faceLandmarks[0], w, h) : null, t);
-    if (this.cycle++ % 2 === 0) {                               // the hand every other pass
+    if (this.handLm || ms - this.lastHandSearch >= 1000 / HAND_SEARCH_HZ) {
+      this.lastHandSearch = ms;
       const hand = this.hand.detectForVideo(this.video, ts);
       this.handLm = this.handSmooth.filter(hand.landmarks && hand.landmarks[0]
         ? toPixels(hand.landmarks[0], w, h) : null, t);
@@ -463,7 +509,8 @@ export class BrowserCamera {
   // Fields the page merges over the server's telemetry.
   telemetry() {
     const tele = { source: this.state === 'camera' && this.ready ? 'camera' : 'idle',
-                   message: this.message, loading: this.loading, camera: this.mode, cameras: this.cameras };
+                   message: this.message, loading: this.loading, cameras: this.cameras,
+                   camera: this.mode && { ...this.mode, held: this.held } };
     if (this.state !== 'camera') return tele;
     const w = this.video.videoWidth || 16, h = this.video.videoHeight || 9;
     const s = this.shown;
@@ -472,6 +519,7 @@ export class BrowserCamera {
       region: s ? { kind: s.kind, locked: this.selector.locked,
                     outline: s.outline.map(poly => poly.map(([x, y]) => [1 - x / w, y / h])) } : null,
       clipped: Math.round(this.clipped * 1000) / 1000,
+      brightness: this.brightness === null ? null : Math.round(this.brightness),
       moving: this.motion > 0.05,
       roi_pixels: this.roi ? this.roi.pixels : 0,
     });

@@ -7,7 +7,10 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    RPPG_SOURCE=browser
+    RPPG_SOURCE=browser \
+    WEB_CONCURRENCY=2
+# WEB_CONCURRENCY: uvicorn worker processes. Each visitor's connection stays on
+# one worker, so set it to the server's CPU cores for a large class.
 
 WORKDIR /app
 COPY requirements-web.txt .

@@ -32,11 +32,21 @@ RPPG_SOURCE=browser uvicorn app:app        # then open http://localhost:8000
 3. Under *Domains*, add your domain (or Dokploy's generated `traefik.me` one), container port **8000**, with **HTTPS on** and the **Let's Encrypt** certificate. Browsers allow camera access only on HTTPS pages, so plain HTTP will show "The camera needs a secure connection".
 4. Open the domain, allow the camera, and share the link (a QR code works well on a slide).
 
-WebSockets pass through Dokploy's Traefik with no extra settings. Optional environment variable: `RPPG_MAX_SESSIONS` (default 200). `/healthz` answers health checks, and `/api/telemetry` shows how many people are connected.
+WebSockets pass through Dokploy's Traefik with no extra settings. `/healthz` answers health checks, and `/api/telemetry` shows how many people are connected to the worker that answers.
 
-**Capacity.** Each connected person costs the server about 3 ms of DSP four times a second, so 40 students need roughly half a CPU core. The face and hand tracking runs on each student's own laptop.
+Environment variables (Dokploy: *Environment* tab):
 
-**Differences from the local version.** The local version (`RPPG_SOURCE=camera`, the default) reads this Mac's camera through AVFoundation at up to 60 fps with hardware timestamps, and can also measure any exposed skin, such as an arm. In the browser, cameras usually give 30 fps, timestamps come from the browser, and only the face and palm are tracked. Tap the face or palm to lock onto it. The keyboard demo controls (`1` `2` `3`, `S`, arrows) work in both. Each visitor gets their own simulation and their own method setting.
+| variable | default | |
+|---|---|---|
+| `RPPG_PRESENTER_KEY` | unset | Open the page as `https://your-domain/?presenter=<key>` to get the keyboard demo controls and the simulation. Students' pages ignore the keys, and with no key set nobody gets them. It keeps students out of the simulation, which streams video and costs more; it is not a password. |
+| `WEB_CONCURRENCY` | 2 | Server worker processes. Set it to the server's CPU cores for a big class. |
+| `RPPG_MAX_SESSIONS` | 200 | Most connections per worker. |
+
+**Capacity.** Each connected person costs the server about 3 ms of DSP four times a second, so 40 students need roughly half a CPU core. The DSP runs in worker threads, so one connection never stalls the others. In a load test with 2 workers, 60 simulated students all read within 1.5 bpm of their true rate, with a median reply time of 23 ms. The face and hand tracking runs on each student's own laptop.
+
+**What students see.** A bar along the bottom of the camera fills until the first reading, and a four-bar meter under the number shows signal quality. The status line names the one thing most worth fixing: *Hold still and stay quiet*, *Move closer to the camera*, *Not enough light…*, or *Too much light on your skin…*. Where the camera allows it (mostly Chrome on Windows, Linux and Android), exposure and white balance are held fixed 2 s after the camera starts or the screen light is toggled, so the camera stops repainting the skin it is measuring. The page then shows *exposure held*. To leave the laptop free for the video, face tracking runs 15 times a second, and the search for a hand runs 4 times a second until one appears. The skin itself is measured on every frame.
+
+**Differences from the local version.** The local version (`RPPG_SOURCE=camera`, the default) reads this Mac's camera through AVFoundation at up to 60 fps with hardware timestamps, and can also measure any exposed skin, such as an arm. In the browser, cameras usually give 30 fps, timestamps come from the browser, and only the face and palm are tracked. Tap the face or palm to lock onto it. The keyboard demo controls (`1` `2` `3`, `S`, arrows) work locally, and on the deployed site for the presenter link only.
 
 The page loads MediaPipe from cdn.jsdelivr.net and its models from storage.googleapis.com. A network that blocks either shows "Could not load the tracking models".
 

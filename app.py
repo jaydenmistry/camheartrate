@@ -8,7 +8,9 @@ Environment:
                   one shared measurement. browser: every visitor's page uses its own
                   camera and gets its own measurement (rppg_session.py); for deployment.
     RPPG_CAMERA   camera name or id to start with (default: the built-in camera)
-    RPPG_MAX_SESSIONS   browser mode: most visitors measured at once (default 200)
+    RPPG_MAX_SESSIONS   browser mode: most visitors measured at once, per worker (default 200)
+    RPPG_PRESENTER_KEY  browser mode: a page opened with ?presenter=<key> gets the demo
+                        keys and the simulation; with no key set, nobody does
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -38,6 +41,7 @@ SEND_INTERVAL = 1.0 / 40.0       # poll faster than the 30 FPS source; only new 
 SOURCE = os.environ.get("RPPG_SOURCE", "camera").lower()
 BROWSER = SOURCE == "browser"
 MAX_SESSIONS = int(os.environ.get("RPPG_MAX_SESSIONS", "200"))
+PRESENTER_KEY = os.environ.get("RPPG_PRESENTER_KEY", "")
 
 
 @asynccontextmanager
@@ -45,6 +49,8 @@ async def lifespan(app: FastAPI):
     app.state.sessions = 0
     if BROWSER:
         log.info("ready at http://localhost:8000 (each browser uses its own camera)")
+        if not PRESENTER_KEY:
+            log.info("simulation off: set RPPG_PRESENTER_KEY, then open the page with ?presenter=<key>")
         yield
         return
     from rppg_pipeline import Pipeline     # needs MediaPipe and camera access; not in browser mode
@@ -111,9 +117,11 @@ async def ws_endpoint(websocket: WebSocket) -> None:
         if app.state.sessions >= MAX_SESSIONS:
             await websocket.close(code=1013, reason="server full")
             return
+        given = websocket.query_params.get("presenter", "")
+        presenter = bool(PRESENTER_KEY) and secrets.compare_digest(given.encode(), PRESENTER_KEY.encode())
         app.state.sessions += 1
         try:
-            await BrowserSession(websocket).run()
+            await BrowserSession(websocket, presenter=presenter).run()
         finally:
             app.state.sessions -= 1
         return
