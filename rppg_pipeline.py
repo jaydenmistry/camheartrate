@@ -83,6 +83,7 @@ class Pipeline:
         self._motion = 0.0                      # region speed, frame widths per second (smoothed)
         self._last_centre: tuple[float, float, float] | None = None
         self._notice = {"id": 0, "text": ""}
+        self._model_error: str | None = None    # the message set by the last failed model load
 
         self._seq = 0
         self._jpeg: bytes | None = None
@@ -255,16 +256,27 @@ class Pipeline:
         if self._face is not None:
             return True
         try:
-            self._face = FaceMeshTracker()
-            self._hand = HandTracker()
-            return True
+            face = FaceMeshTracker()
+            try:
+                hand = HandTracker()
+            except Exception:
+                face.close()
+                raise
         except Exception as exc:  # noqa: BLE001 - e.g. model download blocked
-            log.exception("landmark models failed to load")
-            self.message = f"Could not load the tracking models: {exc}."
+            message = f"Could not load the tracking models: {exc}."
+            if message != self._model_error:      # retried every second: log each new error once
+                log.exception("landmark models failed to load")
+            self._model_error = self.message = message
             return False
+        self._face, self._hand = face, hand
+        if self.message == self._model_error:
+            self.message = ""
+        self._model_error = None
+        return True
 
     def _track(self, t: float, frame: np.ndarray) -> None:
         if not self._load_trackers():
+            self._publish_untracked(frame)
             time.sleep(1.0)
             return
         t0 = time.perf_counter()
@@ -326,13 +338,25 @@ class Pipeline:
         tele["moving"] = self._motion > 0.05
         if shown is None:
             tele["status"] = "NO SKIN"
+        self._publish(self._display_frame(frame), tele, (w, h), pixels, (time.perf_counter() - t0) * 1000.0)
 
-        disp_h = round(h * DISPLAY_WIDTH / w)
-        disp = cv2.resize(frame, (DISPLAY_WIDTH, disp_h), interpolation=cv2.INTER_AREA) if w > DISPLAY_WIDTH else frame
+    def _publish_untracked(self, frame: np.ndarray) -> None:
+        """The camera works but the trackers do not: still show the picture and say why."""
+        with self._lock:
+            tele = self.engine.telemetry()
+        tele.update({"region": None, "status": "NO SKIN", "clipped": 0.0, "moving": False})
+        h, w = frame.shape[:2]
+        self._publish(self._display_frame(frame), tele, (w, h), 0, 0.0)
+
+    @staticmethod
+    def _display_frame(frame: np.ndarray) -> np.ndarray:
+        """Downscaled, BGR, mirrored copy for the page."""
+        h, w = frame.shape[:2]
+        disp = cv2.resize(frame, (DISPLAY_WIDTH, round(h * DISPLAY_WIDTH / w)),
+                          interpolation=cv2.INTER_AREA) if w > DISPLAY_WIDTH else frame
         if disp.shape[2] == 4:
             disp = cv2.cvtColor(disp, cv2.COLOR_BGRA2BGR)
-        disp = cv2.flip(disp, 1)
-        self._publish(disp, tele, (w, h), pixels, (time.perf_counter() - t0) * 1000.0)
+        return cv2.flip(disp, 1)
 
     # -- synthetic -----------------------------------------------------------------
 
