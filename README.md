@@ -41,6 +41,7 @@ Environment variables (Dokploy: *Environment* tab):
 | `RPPG_PRESENTER_KEY` | unset | Open the page as `https://your-domain/?presenter=<key>` to get the keyboard demo controls and the simulation. Students' pages ignore the keys, and with no key set nobody gets them. It keeps students out of the simulation, which streams video and costs more; it is not a password. |
 | `WEB_CONCURRENCY` | 2 | Server worker processes. Set it to the server's CPU cores for a big class. |
 | `RPPG_MAX_SESSIONS` | 200 | Most connections per worker. |
+| `RPPG_CSP_REPORT_ONLY` | unset | Set to `1` to send the Content-Security-Policy as report-only: violations show in the browser console instead of being blocked. A fallback if the policy ever breaks the page. |
 
 **Capacity.** Each connected person costs the server about 3 ms of DSP four times a second, so 40 students need roughly half a CPU core. The DSP runs in worker threads, so one connection never stalls the others. In a load test with 2 workers, 60 simulated students all read within 1.5 bpm of their true rate, with a median reply time of 23 ms. The face and hand tracking runs on each student's own laptop.
 
@@ -55,6 +56,8 @@ Environment variables (Dokploy: *Environment* tab):
 **Differences from the local version.** The local version (`RPPG_SOURCE=camera`, the default) reads this Mac's camera through AVFoundation at up to 60 fps with hardware timestamps, and can also measure any exposed skin, such as an arm. In the browser, cameras usually give 30 fps, timestamps come from the browser, and only the face and palm are tracked. Tap the face or palm to lock onto it. The keyboard demo controls (`1` `2` `3`, `S`, arrows) work locally, and on the deployed site for the presenter link only.
 
 **Tracking files are served from your server.** The Docker build runs `fetch_assets.py`, which downloads MediaPipe's JavaScript and WebAssembly, the face and hand models, and the QR code library (about 30 MB) into `static/vendor/`, each checked against a pinned SHA-256. Students' browsers then need to reach only your domain (and Google Fonts, which is optional). Without those files, for example running from a fresh checkout, the page falls back to cdn.jsdelivr.net, storage.googleapis.com and cdnjs. To serve them locally too, run `python fetch_assets.py` once.
+
+**Security headers.** Every response carries a Content-Security-Policy, HSTS, a Permissions-Policy that allows the camera only on this site's own pages, `Referrer-Policy: same-origin` (so `?presenter=<key>` is never sent to Google Fonts or a CDN), `nosniff`, frame blocking and `Cross-Origin-Opener-Policy`. The CSP allows scripts only from this server and the pages' own inline scripts, by SHA-256 hash, which `app.py` computes at startup. It adds the CDNs only when `static/vendor/` is missing. Check the live site with `curl -sI https://your-domain/`, or securityheaders.com.
 
 ## Using it
 

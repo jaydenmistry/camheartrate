@@ -11,21 +11,26 @@ Environment:
     RPPG_MAX_SESSIONS   browser mode: most visitors measured at once, per worker (default 200)
     RPPG_PRESENTER_KEY  browser mode: a page opened with ?presenter=<key> gets the demo
                         keys and the simulation; with no key set, nobody does
+    RPPG_CSP_REPORT_ONLY  1: send the Content-Security-Policy as report-only, so a
+                          violation shows in the browser console instead of being blocked
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +51,50 @@ SOURCE = os.environ.get("RPPG_SOURCE", "camera").lower()
 BROWSER = SOURCE == "browser"
 MAX_SESSIONS = int(os.environ.get("RPPG_MAX_SESSIONS", "200"))
 PRESENTER_KEY = os.environ.get("RPPG_PRESENTER_KEY", "")
+LOCAL_ASSETS = all((STATIC_DIR / "vendor" / f).exists() for f in VENDOR_FILES)    # see fetch_assets.py
+CSP_REPORT_ONLY = os.environ.get("RPPG_CSP_REPORT_ONLY", "") == "1"
+
+
+def inline_script_hashes() -> list[str]:
+    """CSP hashes of the pages' inline <script> blocks, so no other inline script runs."""
+    hashes = []
+    for page in ("index.html", "class.html"):
+        for body in re.findall(r"<script>(.*?)</script>", (STATIC_DIR / page).read_text("utf-8"), re.S):
+            digest = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
+            hashes.append(f"'sha256-{digest}'")
+    return hashes
+
+
+def content_security_policy() -> str:
+    # Without the files from fetch_assets.py the page falls back to these CDNs.
+    cdn_scripts = "" if LOCAL_ASSETS else " https://cdn.jsdelivr.net https://cdnjs.cloudflare.com"
+    cdn_fetches = "" if LOCAL_ASSETS else " https://cdn.jsdelivr.net https://storage.googleapis.com"
+    return "; ".join([
+        "default-src 'self'",
+        f"script-src 'self' 'wasm-unsafe-eval' {' '.join(inline_script_hashes())}{cdn_scripts}",  # MediaPipe is WebAssembly
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src https://fonts.gstatic.com",
+        "img-src 'self' data: blob:",              # data: the QR code; blob: server-mode frames
+        f"connect-src 'self'{cdn_fetches}",        # 'self' includes the page's own ws:// and wss://
+        "worker-src 'self' blob:",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ])
+
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy-Report-Only" if CSP_REPORT_ONLY else "Content-Security-Policy":
+        content_security_policy(),
+    "Strict-Transport-Security": "max-age=31536000",
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=()",
+    "Referrer-Policy": "same-origin",          # keeps ?presenter=<key> out of other sites' Referer
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
 
 
 @asynccontextmanager
@@ -91,6 +140,14 @@ app = FastAPI(title="rPPG Heart Rate Monitor", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
@@ -128,8 +185,7 @@ def is_presenter(key: str) -> bool:
 @app.get("/api/config")
 async def config() -> JSONResponse:
     """Tells the page whether it measures its own camera (browser) or shows this machine's (server)."""
-    local = all((STATIC_DIR / "vendor" / f).exists() for f in VENDOR_FILES)     # see fetch_assets.py
-    return JSONResponse({"mode": "browser" if BROWSER else "server", "local_assets": local})
+    return JSONResponse({"mode": "browser" if BROWSER else "server", "local_assets": LOCAL_ASSETS})
 
 
 @app.get("/healthz")
