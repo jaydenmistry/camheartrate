@@ -1,44 +1,50 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Camera Heart Rate</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
+<script src="/static/theme.js"></script>
 <style>
-  /* Layout: the camera is the stage; under it one quiet line of status, then the
-     heart rate and its last minute. The outlined skin flushes red on every beat. */
+  /* Apple Human Interface Guidelines look: system font, grouped background with
+     rounded cards, system colours, capsule buttons, a segmented control, and
+     motion that settles like a spring. The camera is the stage; under it one
+     line of status, then the heart rate and its graph. */
   :root {
-    --ground: #f4f2f2;      /* pale paper with a faint rose cast */
-    --ink: #1e1719;
-    --muted: #76696c;
-    --rule: #e3dcdd;
-    --blood: #c0182f;       /* oxygenated haemoglobin */
-    --stage: #1b1718;
+    --ground: #f2f2f7;      /* systemGroupedBackground */
+    --card: #ffffff;        /* secondarySystemGroupedBackground */
+    --ink: #000000;         /* label */
+    --muted: #6c6c70;       /* secondary label, the high-contrast variant */
+    --rule: #e5e5ea;        /* separator / systemGray5 */
+    --fill: rgb(120 120 128 / 0.12);
+    --fill-hover: rgb(120 120 128 / 0.2);
+    --thumb: #ffffff;
+    --tint: #ff2d55;        /* systemPink: heart, chart marks (3.6:1 on white) */
+    --blood: #d70015;       /* red for text: 5.4:1 on white */
+    --button: #e8193f;      /* filled buttons: white text at 4.5:1 */
+    --stage: #1c1c1e;
     --on-stage: #ffffff;
-    --scrim: rgb(20 14 16 / 0.62);
-    --flush: 255 70 92;     /* rgb triplet for the beat flush over skin */
-    --font: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --scrim: rgb(28 28 30 / 0.62);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.04);
+    --flush: 255 45 85;     /* rgb triplet for the beat flush over skin */
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+    --font-num: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
+    --spring: cubic-bezier(0.22, 1.2, 0.36, 1);       /* slight overshoot */
+    --ease: cubic-bezier(0.25, 1, 0.5, 1);
     color-scheme: light;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --ground: #141112; --ink: #f4eeee; --muted: #a09396; --rule: #2b2426;
-      --blood: #ff5266; --stage: #000000; color-scheme: dark;
-    }
-  }
   :root[data-theme="dark"] {
-    --ground: #141112; --ink: #f4eeee; --muted: #a09396; --rule: #2b2426;
-    --blood: #ff5266; --stage: #000000; color-scheme: dark;
+    --ground: #000000; --card: #1c1c1e; --ink: #ffffff; --muted: #98989d; --rule: #38383a;
+    --fill: rgb(118 118 128 / 0.24); --fill-hover: rgb(118 118 128 / 0.34); --thumb: #636366;
+    --tint: #ff375f; --blood: #ff453a; --stage: #000000; --shadow: none;
+    color-scheme: dark;
   }
-  /* Screen light: the page turns into a steady, neutral white light source
-     for the skin. Same specificity as the dark block above and later, so it wins. */
+  /* Screen light: the page turns into a steady, neutral white light source for
+     the skin. It is always light; choosing dark turns it off. */
   :root[data-light="on"] {
-    --ground: #ffffff; --ink: #1e1719; --muted: #6e6265; --rule: #ece6e7;
-    --blood: #c0182f; --stage: #1b1718; color-scheme: light;
+    --ground: #ffffff; --card: #ffffff; --shadow: none;
   }
+  :root[data-light="on"] .card { border-color: var(--rule); }
 
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -49,19 +55,59 @@
     background: var(--ground);
     color: var(--ink);
     font-family: var(--font);
-    font-size: 16px;
-    line-height: 1.45;
+    font-size: 17px;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
+    transition: background-color 0.3s var(--ease), color 0.3s var(--ease);
   }
   main {
     --ar: 1.7778;
-    width: min(100%, 1120px, calc(64vh * var(--ar)));
+    width: min(100%, 1120px, calc(60vh * var(--ar)));
     margin: 0 auto;
-    padding-block: clamp(16px, 3vh, 36px);
+    padding-block: clamp(12px, 2.4vh, 28px);
     display: grid;
     gap: 14px;
+  }
+
+  /* ---- entrance: each block rises into place, one after another ---- */
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
+  main > * { animation: rise 0.7s var(--spring) both; }
+  main > *:nth-child(2) { animation-delay: 0.05s; }
+  main > *:nth-child(3) { animation-delay: 0.1s; }
+  main > *:nth-child(n+4) { animation-delay: 0.15s; }
+
+  /* ---- header ---- */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .title h1 { margin: 0; font-size: clamp(24px, 3.2vw, 34px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .title svg { width: 30px; height: 30px; flex-shrink: 0; }
+  .title svg path, .beat-heart path { fill: var(--tint); }
+
+  /* Segmented control (Light / Dark). */
+  .segmented {
+    position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; flex-shrink: 0;
+    background: var(--fill); border-radius: 9px; padding: 2px;
+  }
+  .segmented button {
+    position: relative; z-index: 1; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink);
+    background: none; border: 0; padding: 5px 16px; border-radius: 7px; cursor: pointer;
+  }
+  .segmented button:focus-visible { outline: 2px solid var(--tint); outline-offset: 1px; }
+  .segmented .thumb {
+    position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px);
+    background: var(--thumb); border-radius: 7px;
+    box-shadow: 0 3px 8px rgb(0 0 0 / 0.12), 0 3px 1px rgb(0 0 0 / 0.04);
+    transition: transform 0.4s var(--spring), background-color 0.3s;
+  }
+  .segmented[data-value="dark"] .thumb { transform: translateX(100%); }
+
+  /* ---- cards ---- */
+  .card {
+    background: var(--card); border-radius: 20px; padding: 16px 18px; border: 1px solid transparent;
+    box-shadow: var(--shadow); transition: background-color 0.3s var(--ease);
   }
 
   /* ---- camera stage ---- */
@@ -71,10 +117,11 @@
     width: 100%;
     aspect-ratio: var(--ar);
     background: var(--stage);
-    border-radius: 18px;
+    border-radius: 22px;
     overflow: hidden;
     cursor: crosshair;
     -webkit-tap-highlight-color: transparent;
+    box-shadow: var(--shadow);
   }
   .stage img, .stage video, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .stage img, .stage video { object-fit: cover; display: block; }
@@ -83,13 +130,16 @@
   /* Pulse magnifier (magnify.js): the video with its colour changes amplified, drawn on top. */
   .stage canvas.mag { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
   .stage canvas.mag.mirror { transform: scaleX(-1); }
+  @keyframes fade-in { from { opacity: 0; } }
+  .stage canvas.mag:not([hidden]) { animation: fade-in 0.5s var(--ease); }
   .mag-ctl {
     position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 10px;
-    background: var(--scrim); color: var(--on-stage); padding: 6px 14px; border-radius: 999px; font-size: 14px;
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); cursor: default;
+    background: var(--scrim); color: var(--on-stage); padding: 7px 14px; border-radius: 999px; font-size: 14px;
+    backdrop-filter: blur(20px) saturate(1.8); -webkit-backdrop-filter: blur(20px) saturate(1.8); cursor: default;
     font-variant-numeric: tabular-nums;
   }
-  .mag-ctl input { width: clamp(90px, 14vw, 160px); accent-color: var(--blood); }
+  .mag-ctl:not([hidden]) { animation: rise 0.5s var(--spring); }
+  .mag-ctl input { width: clamp(90px, 14vw, 160px); accent-color: var(--tint); }
   .roi {
     fill: rgb(var(--flush) / calc(0.04 + var(--beat) * 0.30));
     stroke: var(--on-stage);
@@ -101,89 +151,108 @@
   .stage[data-phase="measuring"] .roi { stroke-dasharray: 6 5; animation: march 0.9s linear infinite; }
   @keyframes march { to { stroke-dashoffset: -11; } }
   .placeholder {
-    position: absolute; inset: 0; display: grid; place-items: center;
-    color: var(--on-stage); opacity: 0.7; font-size: 15px; text-align: center; padding: 16px;
+    position: absolute; inset: 0; display: grid; place-items: center; gap: 14px; align-content: center;
+    color: var(--on-stage); opacity: 0.75; font-size: 15px; text-align: center; padding: 16px;
   }
+  /* Activity indicator while the camera and tracking start. */
+  .placeholder::before {
+    content: ''; width: 26px; height: 26px; border-radius: 50%;
+    border: 2.5px solid rgb(255 255 255 / 0.25); border-top-color: var(--on-stage);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(1turn); } }
   .toast {
-    position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 6px);
+    position: absolute; left: 50%; bottom: 18px; transform: translate(-50%, 12px) scale(0.96);
     max-width: calc(100% - 32px);
     background: var(--scrim); color: var(--on-stage);
-    padding: 8px 14px; border-radius: 999px; font-size: 14px;
-    opacity: 0; transition: opacity 0.18s, transform 0.18s; pointer-events: none;
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    padding: 9px 16px; border-radius: 14px; font-size: 15px; font-weight: 500;
+    opacity: 0; transition: opacity 0.2s var(--ease), transform 0.45s var(--spring); pointer-events: none;
+    backdrop-filter: blur(20px) saturate(1.8); -webkit-backdrop-filter: blur(20px) saturate(1.8);
   }
-  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
   /* Progress to the first reading, along the bottom edge of the camera. */
   .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgb(255 255 255 / 0.2); }
   .progress span {
     display: block; height: 100%; width: calc(var(--p, 0) * 100%);
-    background: var(--blood); transition: width 0.3s linear;
+    background: var(--tint); transition: width 0.35s var(--ease);
   }
 
   /* ---- status line ---- */
   .status {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 6px 16px;
-    flex-wrap: wrap; font-size: 15px; min-height: 22px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px 16px;
+    flex-wrap: wrap; font-size: 15px; min-height: 22px; padding-inline: 4px;
   }
   .status-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
   .dot {
     width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; align-self: center;
     background: var(--muted); transform: scale(calc(1 + var(--beat, 0) * 0.45));
+    transition: background-color 0.3s;
   }
-  .status[data-phase="locked"] .dot { background: var(--blood); }
+  .status[data-phase="locked"] .dot { background: var(--tint); }
   .status[data-phase="warning"] .status-main { color: var(--blood); }
+  .status-main { font-weight: 500; }
   .status-hint { color: var(--muted); }
-  .controls { display: flex; align-items: baseline; gap: 6px 18px; flex-wrap: wrap; }
-  .mode { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .mode { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; padding-inline: 4px; }
+  .mode:empty { display: none; }
+  /* Capsule buttons, tinted grey (HIG "gray" button). */
   .link {
-    font: inherit; font-size: 15px; color: var(--ink); background: none; border: 0; padding: 2px 0;
-    text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 4px;
-    text-decoration-thickness: 2px; cursor: pointer;
+    font: inherit; font-size: 15px; font-weight: 500; color: var(--blood); background: var(--fill);
+    border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; text-decoration: none;
+    transition: transform 0.35s var(--spring), background-color 0.2s;
+    -webkit-tap-highlight-color: transparent;
   }
-  .link:hover { text-decoration-color: var(--ink); }
-  .link:focus-visible { outline: 2px solid var(--blood); outline-offset: 3px; border-radius: 2px; }
+  .link:hover { background: var(--fill-hover); }
+  .link:active { transform: scale(0.95); transition-duration: 0.08s; }
+  .link:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+  .controls > *:not([hidden]) { animation: rise 0.45s var(--spring); }
 
   /* ---- pulse check ---- */
-  .check { display: grid; gap: 12px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 14px; }
+  .check { display: grid; gap: 12px; }
+  .check:not([hidden]) { animation: rise 0.5s var(--spring); }
   .check p { margin: 0; }
-  .check-row { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; }
+  .check-row { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
   .tap {
-    font: inherit; font-size: 17px; font-weight: 600; color: #fff; background: var(--blood);
-    border: 0; border-radius: 999px; padding: 14px 28px; cursor: pointer;
-    touch-action: manipulation; user-select: none; -webkit-user-select: none; transition: transform 0.08s;
+    font: inherit; font-size: 17px; font-weight: 600; color: #fff; background: var(--button);
+    border: 0; border-radius: 14px; padding: 14px 30px; cursor: pointer;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    transition: transform 0.3s var(--spring);
   }
-  .tap.hit { transform: scale(0.93); }
+  .tap.hit { transform: scale(0.93); transition-duration: 0.06s; }
   .tap:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   /* While tapping, the camera's number is hidden so it cannot lead the tapping. */
+  .readout .bpm, .readout .trend canvas { transition: filter 0.3s var(--ease); }
   .readout[data-blind] .bpm, .readout[data-blind] .trend canvas { filter: blur(18px); }
 
   /* ---- pulse wave (presenter) ---- */
-  .wave { display: grid; gap: 4px; }
-  .wave-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; }
-  .wave-head span:last-child { color: var(--muted); font-size: 13px; }
+  .wave { display: grid; gap: 6px; }
+  .wave-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; font-weight: 600; }
+  .wave-head span:last-child { color: var(--muted); font-size: 13px; font-weight: 400; }
   .wave canvas { width: 100%; height: clamp(72px, 11vh, 120px); display: block; }
 
   /* ---- readout ---- */
   .readout {
     display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 28px; align-items: end;
-    padding-top: 6px; border-top: 1px solid var(--rule);
   }
-  .reading { display: grid; justify-items: start; min-width: 4.2ch; }
+  .reading { display: grid; justify-items: start; min-width: 4.2ch; gap: 2px; }
+  .reading-head { display: flex; align-items: center; gap: 6px; color: var(--tint); font-size: 15px; font-weight: 600; }
+  .beat-heart { width: 18px; height: 18px; transform: scale(calc(1 + var(--beat, 0) * 0.28)); }
+  .bpm-row { display: flex; align-items: baseline; gap: 6px; }
   .bpm {
-    font-size: clamp(88px, 12vw, 152px);
-    font-weight: 760;
-    font-stretch: 62%;
-    font-variation-settings: 'wdth' 62;
+    font-family: var(--font-num);
+    font-size: clamp(76px, 10vw, 128px);
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-    line-height: 0.86;
+    letter-spacing: -0.03em;
+    line-height: 0.95;
     transition: color 0.3s;
+    display: inline-block;
   }
   .bpm[data-quality="poor"], .bpm[data-quality="none"] { color: var(--muted); }
-  .unit { color: var(--muted); font-size: 15px; margin-top: 6px; }
+  .unit { color: var(--muted); font-size: 20px; font-weight: 600; }
   .signal { display: flex; align-items: flex-end; gap: 7px; color: var(--muted); font-size: 13px; margin-top: 4px; }
   .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
-  .bars i { width: 4px; border-radius: 1px; background: var(--rule); }
+  .bars i { width: 4px; border-radius: 1px; background: var(--rule); transition: background-color 0.3s; }
   .bars i:nth-child(1) { height: 4px; } .bars i:nth-child(2) { height: 7px; }
   .bars i:nth-child(3) { height: 10px; } .bars i:nth-child(4) { height: 12px; }
   .bars i.on { background: var(--ink); }
@@ -191,20 +260,36 @@
   .trend canvas { width: 100%; height: clamp(120px, 17vh, 170px); display: block; }
   .trend-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; padding-right: 34px; }
   .trend-note { font-size: 15px; font-variant-numeric: tabular-nums; }
+  .trend-note:not([hidden]) { animation: rise 0.5s var(--spring); }
   .trend-note b { font-weight: 650; }
+
+  /* Theme change: the page cross-fades (View Transitions, where supported). */
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.35s; }
 
   @media (max-width: 640px) {
     .readout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-    .stage { border-radius: 14px; }
+    .stage { border-radius: 16px; }
+    .card { border-radius: 16px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .stage[data-phase="measuring"] .roi { animation: none; }
-    .toast { transition: none; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
 </style>
 </head>
 <body>
 <main>
+  <header class="top">
+    <div class="title">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21C12 21 3 14.6 3 8.6A4.6 4.6 0 0 1 12 6.4A4.6 4.6 0 0 1 21 8.6C21 14.6 12 21 12 21Z"/></svg>
+      <h1>Camera Heart Rate</h1>
+    </div>
+    <div class="segmented" id="theme" data-theme-switch role="radiogroup" aria-label="Appearance">
+      <span class="thumb" aria-hidden="true"></span>
+      <button role="radio" data-choice="light">Light</button>
+      <button role="radio" data-choice="dark">Dark</button>
+    </div>
+  </header>
+
   <div class="stage" id="stage" data-phase="none">
     <img id="video" alt="Live camera view. Tap any skin to measure there.">
     <video id="cam" playsinline muted hidden aria-label="Live camera view. Tap your face or palm to measure there."></video>
@@ -237,7 +322,7 @@
     </div>
   </div>
 
-  <section class="check" id="check" hidden aria-live="polite">
+  <section class="check card" id="check" hidden aria-live="polite">
     <p id="checkText"></p>
     <div class="check-row">
       <button class="tap" id="tapBtn">Tap on each beat</button>
@@ -245,10 +330,13 @@
     </div>
   </section>
 
-  <section class="readout" aria-label="Heart rate">
+  <section class="readout card" aria-label="Heart rate">
     <div class="reading">
-      <output class="bpm" id="bpm" data-quality="none" aria-live="off">–</output>
-      <span class="unit">beats per minute</span>
+      <div class="reading-head">
+        <svg class="beat-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21C12 21 3 14.6 3 8.6A4.6 4.6 0 0 1 12 6.4A4.6 4.6 0 0 1 21 8.6C21 14.6 12 21 12 21Z"/></svg>
+        <span>Heart rate</span>
+      </div>
+      <div class="bpm-row"><output class="bpm" id="bpm" data-quality="none" aria-live="off">–</output><span class="unit" title="beats per minute">BPM</span></div>
       <span class="signal" id="signal" hidden><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span><span id="signalText">signal</span></span>
     </div>
     <div class="trend">
@@ -258,7 +346,7 @@
     </div>
   </section>
 
-  <section class="wave" id="wave" hidden aria-label="Pulse wave">
+  <section class="wave card" id="wave" hidden aria-label="Pulse wave">
     <div class="wave-head"><span>Pulse wave, last 6 seconds</span><span>each dot is a heartbeat</span></div>
     <canvas id="waveCanvas"></canvas>
   </section>
@@ -296,8 +384,10 @@ function current() {
 // Screen light: on unless the viewer turned it off last time.
 let light = true;
 try { light = localStorage.getItem('screenLight') !== 'off'; } catch (e) { /* storage blocked */ }
+if (Theme.get() === 'dark') light = false;        // the screen light is a white page
 function setLight(on, announce) {
   light = on;
+  if (on && Theme.get() === 'dark') Theme.set('light');
   document.documentElement.dataset.light = on ? 'on' : 'off';
   $('lightBtn').textContent = on ? 'Turn screen light off' : 'Turn screen light on';
   try { localStorage.setItem('screenLight', on ? 'on' : 'off'); } catch (e) { /* ignore */ }
@@ -666,7 +756,14 @@ function render(t) {
 
   const live = t.bpm !== null && ['LOCKED', 'WEAK SIGNAL', 'HIGH MOTION NOISE'].includes(t.status);
   const bpmEl = $('bpm');
-  bpmEl.textContent = live ? Math.round(t.bpm) : '–';
+  const shownBpm = live ? String(Math.round(t.bpm)) : '–';
+  if (bpmEl.textContent !== shownBpm) {
+    bpmEl.textContent = shownBpm;
+    // The new number settles in from below, like a numeric text transition.
+    if (!reduceMotion && bpmEl.animate) bpmEl.animate(
+      [{ transform: 'translateY(0.12em)', opacity: 0.35, filter: 'blur(3px)' }, { transform: 'none', opacity: 1, filter: 'none' }],
+      { duration: 320, easing: 'cubic-bezier(0.22, 1.2, 0.36, 1)' });
+  }
   bpmEl.dataset.quality = !live ? 'none' : t.status === 'HIGH MOTION NOISE' ? 'poor' : 'good';
   st.hr = live && t.status !== 'HIGH MOTION NOISE' ? t.bpm : null;
   if (chk.on && !chk.done && chk.taps.length && st.hr) chk.camera.push(st.hr);
@@ -699,7 +796,7 @@ function drawTrend() {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  const ink = cssVar('--ink'), muted = cssVar('--muted'), rule = cssVar('--rule'), blood = cssVar('--blood'), ground = cssVar('--ground');
+  const ink = cssVar('--ink'), muted = cssVar('--muted'), rule = cssVar('--rule'), blood = cssVar('--tint'), ground = cssVar('--card');
   const font = cssVar('--font');
   const padR = 34, padT = 8, padB = 6;
   const plotW = W - padR, plotH = H - padT - padB;
@@ -815,11 +912,11 @@ function drawWave() {
   ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
   ctx.beginPath();
   w.t.forEach((tr, i) => i ? ctx.lineTo(x(tr), y(w.y[i])) : ctx.moveTo(x(tr), y(w.y[i])));
-  ctx.strokeStyle = cssVar('--blood'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+  ctx.strokeStyle = cssVar('--tint'); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
   for (const i of w.peaks || []) {
     ctx.beginPath(); ctx.arc(x(w.t[i]), y(w.y[i]), 4, 0, Math.PI * 2);
-    ctx.fillStyle = cssVar('--blood'); ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = cssVar('--ground'); ctx.stroke();
+    ctx.fillStyle = cssVar('--tint'); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = cssVar('--card'); ctx.stroke();
   }
   ctx.restore();
 }
@@ -838,10 +935,17 @@ function frame(ts) {
   stage.style.setProperty('--beat', beat.toFixed(3));
   if (!$('wave').hidden) drawWave();
   statusEl.style.setProperty('--beat', beat.toFixed(3));
+  readoutEl.style.setProperty('--beat', beat.toFixed(3));
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 setLight(light, false);
+// Appearance: light by default (theme.js). Dark is a dark page, so it turns the screen light off.
+Theme.bind($('theme'));
+Theme.onChange((theme) => {
+  if (theme === 'dark' && light) { setLight(false, false); toast('Dark mode. The screen light is off; turn it on for more light on your skin.'); }
+  drawTrend();
+});
 
 async function boot() {
   let config = {};

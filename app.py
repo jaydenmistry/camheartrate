@@ -72,8 +72,7 @@ def content_security_policy() -> str:
     return "; ".join([
         "default-src 'self'",
         f"script-src 'self' 'wasm-unsafe-eval' {' '.join(inline_script_hashes())}{cdn_scripts}",  # MediaPipe is WebAssembly
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-        "font-src https://fonts.gstatic.com",
+        "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",              # data: the QR code; blob: server-mode frames
         f"connect-src 'self'{cdn_fetches}",        # 'self' includes the page's own ws:// and wss://
         "worker-src 'self' blob:",

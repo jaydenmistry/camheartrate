@@ -1,109 +1,140 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Class Heart Rates</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
+<script src="/static/theme.js"></script>
 <style>
   /* Projector view: how many people are connected, and everyone's heart rate.
-     Same tokens as the measuring page. */
+     Same Apple-style tokens as the measuring page. */
   :root {
-    --ground: #f4f2f2; --ink: #1e1719; --muted: #76696c; --rule: #e3dcdd;
-    --blood: #c0182f;       /* text accents */
-    --mark: #c0182f;        /* chart marks (validated against the surface) */
-    --font: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --ground: #f2f2f7; --card: #ffffff; --ink: #000000; --muted: #6c6c70; --rule: #e5e5ea;
+    --fill: rgb(120 120 128 / 0.12); --fill-hover: rgb(120 120 128 / 0.2); --thumb: #ffffff;
+    --tint: #ff2d55;        /* chart marks and hearts (3.6:1 on the card) */
+    --blood: #d70015;       /* red text */
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.04);
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+    --font-num: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
+    --spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+    --ease: cubic-bezier(0.25, 1, 0.5, 1);
     color-scheme: light;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --ground: #141112; --ink: #f4eeee; --muted: #a09396; --rule: #2b2426;
-      --blood: #ff5266; --mark: #f2475d; color-scheme: dark;
-    }
-  }
   :root[data-theme="dark"] {
-    --ground: #141112; --ink: #f4eeee; --muted: #a09396; --rule: #2b2426;
-    --blood: #ff5266; --mark: #f2475d; color-scheme: dark;
+    --ground: #000000; --card: #1c1c1e; --ink: #ffffff; --muted: #98989d; --rule: #38383a;
+    --fill: rgb(118 118 128 / 0.24); --fill-hover: rgb(118 118 128 / 0.34); --thumb: #636366;
+    --tint: #ff375f; --blood: #ff453a; --shadow: none;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--ground); color: var(--ink); }
   body {
-    font-family: var(--font); font-size: 16px; line-height: 1.45; -webkit-font-smoothing: antialiased;
-    padding: clamp(16px, 3vw, 40px) max(16px, 3vw);
+    font-family: var(--font); font-size: 17px; line-height: 1.4; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased;
+    padding: clamp(16px, 2.6vw, 36px) max(16px, 3vw);
+    transition: background-color 0.3s var(--ease), color 0.3s var(--ease);
   }
-  main { max-width: 1400px; margin: 0 auto; display: grid; gap: clamp(18px, 3vh, 32px); }
+  main { max-width: 1400px; margin: 0 auto; display: grid; gap: clamp(14px, 2vh, 22px); }
 
-  header { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px) scale(0.985); } }
+  main > * { animation: rise 0.7s var(--spring) both; }
+  main > *:nth-child(2) { animation-delay: 0.06s; }
+  main > *:nth-child(3) { animation-delay: 0.12s; }
+  main > *:nth-child(n+4) { animation-delay: 0.18s; }
+
+  .card { background: var(--card); border-radius: 22px; padding: clamp(16px, 2vw, 24px); box-shadow: var(--shadow); }
+
+  header { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
   h1 {
-    margin: 0; font-size: clamp(30px, 4.4vw, 60px); font-weight: 760; line-height: 1;
-    font-stretch: 75%; font-variation-settings: 'wdth' 75; letter-spacing: -0.01em;
+    margin: 0; font-size: clamp(30px, 4.2vw, 56px); font-weight: 700; line-height: 1.05; letter-spacing: -0.025em;
   }
   .join { display: flex; align-items: center; gap: 16px; }
-  .qr { background: #fff; padding: 8px; border-radius: 10px; line-height: 0; }
+  .qr { background: #fff; padding: 8px; border-radius: 14px; line-height: 0; box-shadow: var(--shadow); }
   .qr img, .qr canvas { width: clamp(96px, 10vw, 150px); height: auto; }
   .join-text { display: grid; }
   .join-label { color: var(--muted); font-size: 15px; }
   .join-url { font-size: clamp(18px, 2vw, 28px); font-weight: 600; overflow-wrap: anywhere; }
 
-  .stats {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 28px;
-    border-top: 1px solid var(--rule); padding-top: 14px;
-  }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
   .stat { display: grid; gap: 2px; }
   .stat b {
-    font-size: clamp(44px, 6vw, 88px); font-weight: 740; line-height: 0.95;
-    font-stretch: 62%; font-variation-settings: 'wdth' 62;
+    font-family: var(--font-num); font-size: clamp(44px, 5.6vw, 84px); font-weight: 700; line-height: 1;
+    letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
   }
-  .stat span { color: var(--muted); font-size: 15px; }
+  .stat span { color: var(--muted); font-size: 15px; font-weight: 500; }
 
-  .charts { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 28px; }
+  .charts { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; }
   .charts.single { grid-template-columns: minmax(0, 1fr); }
   @media (max-width: 860px) { .charts { grid-template-columns: minmax(0, 1fr); } }
-  figure { margin: 0; display: grid; gap: 8px; min-width: 0; position: relative; }
+  figure { margin: 0; display: grid; gap: 8px; min-width: 0; position: relative; align-content: start; }
+  figure:not([hidden]) { animation: rise 0.6s var(--spring) both; }
   figcaption { color: var(--muted); font-size: 15px; }
-  .chart-title { font-size: 17px; font-weight: 600; }
+  .chart-title { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
   svg { width: 100%; height: auto; display: block; overflow: visible; }
   svg text { font-family: var(--font); fill: var(--muted); font-size: 13px; }
   .empty { fill: var(--muted); font-size: 16px; }
+  @keyframes pop { from { transform: scale(0); } }
+  .dot-mark { transform-box: fill-box; transform-origin: center; animation: pop 0.5s var(--spring) both; }
   .tip {
-    position: absolute; pointer-events: none; background: var(--ink); color: var(--ground);
-    font-size: 14px; padding: 5px 9px; border-radius: 6px; white-space: nowrap;
+    position: absolute; pointer-events: none; background: var(--ink); color: var(--card);
+    font-size: 14px; font-weight: 500; padding: 5px 10px; border-radius: 8px; white-space: nowrap;
     transform: translate(-50%, calc(-100% - 10px));
   }
-  details { color: var(--muted); font-size: 14px; }
+  details { color: var(--muted); font-size: 14px; padding-inline: 4px; }
+  summary { cursor: pointer; }
   table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
   td, th { padding: 2px 14px 2px 0; text-align: left; font-weight: 400; }
-  .foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 20px; flex-wrap: wrap; }
+  .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px 20px; flex-wrap: wrap; padding-inline: 4px; }
+  .foot-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .status { color: var(--muted); font-size: 14px; }
-  .reset {
-    font: inherit; font-size: 14px; color: var(--ink); background: none; border: 0; padding: 2px 0; cursor: pointer;
-    text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 4px; text-decoration-thickness: 2px;
-  }
-  .reset:hover { text-decoration-color: var(--ink); }
-  .reset:focus-visible { outline: 2px solid var(--blood); outline-offset: 3px; border-radius: 2px; }
   .status.bad { color: var(--blood); }
+  .reset {
+    font: inherit; font-size: 15px; font-weight: 500; color: var(--blood); background: var(--fill);
+    border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer;
+    transition: transform 0.35s var(--spring), background-color 0.2s;
+  }
+  .reset:hover { background: var(--fill-hover); }
+  .reset:active { transform: scale(0.95); transition-duration: 0.08s; }
+  .reset:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+
+  /* Segmented control (Light / Dark). */
+  .segmented { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; background: var(--fill); border-radius: 9px; padding: 2px; }
+  .segmented button {
+    position: relative; z-index: 1; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink);
+    background: none; border: 0; padding: 5px 16px; border-radius: 7px; cursor: pointer;
+  }
+  .segmented button:focus-visible { outline: 2px solid var(--tint); outline-offset: 1px; }
+  .segmented .thumb {
+    position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px);
+    background: var(--thumb); border-radius: 7px; box-shadow: 0 3px 8px rgb(0 0 0 / 0.12), 0 3px 1px rgb(0 0 0 / 0.04);
+    transition: transform 0.4s var(--spring), background-color 0.3s;
+  }
+  .segmented[data-value="dark"] .thumb { transform: translateX(100%); }
 
   /* Wall of hearts: one per connected camera, each beating at its measured rate. */
-  .hearts-wrap { display: grid; gap: 8px; }
+  .hearts-wrap { display: grid; gap: 10px; }
   .hearts {
     --size: 96px;
     display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size), 1fr)); gap: 6px 4px;
     min-height: calc(var(--size) + 28px); align-content: start;
   }
-  .heart { display: grid; justify-items: center; gap: 2px; transition: opacity 0.5s; }
-  .heart.gone { opacity: 0; }
+  .heart { display: grid; justify-items: center; gap: 2px; transition: opacity 0.5s var(--ease), transform 0.5s var(--ease); }
+  .heart:not(.gone) { animation: pop 0.6s var(--spring) both; }
+  .heart.gone { opacity: 0; transform: scale(0.6); }
   .heart svg { width: calc(var(--size) * 0.82); height: auto; overflow: visible; will-change: transform; }
-  .heart path { fill: var(--mark); stroke: var(--ground); stroke-width: 1; transition: fill 0.6s; }
+  .heart path { fill: var(--tint); stroke: var(--card); stroke-width: 1; transition: fill 0.6s var(--ease), opacity 0.6s; }
   .heart.waiting path { fill: var(--muted); opacity: 0.4; }
   .heart span {
-    font-size: calc(var(--size) * 0.2); font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1;
-    color: var(--ink);
+    font-family: var(--font-num); font-size: calc(var(--size) * 0.2); font-weight: 700; font-variant-numeric: tabular-nums;
+    line-height: 1; color: var(--ink);
   }
-  .heart.waiting span { color: var(--muted); font-weight: 400; }
+  .heart.waiting span { color: var(--muted); font-weight: 500; }
   .hearts-empty { color: var(--muted); font-size: 16px; align-self: center; grid-column: 1 / -1; }
+
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.35s; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -116,27 +147,27 @@
     </div>
   </header>
 
-  <section class="stats" aria-label="Summary">
+  <section class="stats card" aria-label="Summary">
     <div class="stat"><b id="connected">0</b><span>connected</span></div>
     <div class="stat"><b id="reading">0</b><span>with a reading</span></div>
     <div class="stat"><b id="median">–</b><span>median bpm</span></div>
     <div class="stat"><b id="range">–</b><span>range, bpm</span></div>
   </section>
 
-  <section class="hearts-wrap" aria-label="Every heart in the room">
+  <section class="hearts-wrap card" aria-label="Every heart in the room">
     <div class="chart-title">Every heart in the room</div>
     <div class="hearts" id="hearts"><div class="hearts-empty" id="heartsEmpty">A heart appears here for everyone who joins.</div></div>
     <figcaption>Each heart beats at the rate its own camera measures. Grey hearts are still measuring.</figcaption>
   </section>
 
   <section class="charts" id="charts">
-    <figure>
+    <figure class="card">
       <div class="chart-title">Everyone's heart rate</div>
       <svg id="hist" role="img" aria-label="Heart rates of everyone with a reading, one dot per person"></svg>
       <figcaption>One dot per person, grouped in 5 bpm steps. Readings update every second.</figcaption>
       <div class="tip" id="histTip" hidden></div>
     </figure>
-    <figure id="checksFig" hidden>
+    <figure class="card" id="checksFig" hidden>
       <div class="chart-title">Camera vs. finger on the pulse</div>
       <svg id="scatter" role="img" aria-label="Pulse checks: tapped rate against camera rate"></svg>
       <figcaption id="checksText"></figcaption>
@@ -150,7 +181,14 @@
   </details>
   <div class="foot">
     <div class="status" id="status">Connecting…</div>
-    <button class="reset" id="resetBtn" hidden>Clear pulse checks</button>
+    <div class="foot-right">
+      <button class="reset" id="resetBtn" hidden>Clear pulse checks</button>
+      <div class="segmented" id="theme" data-theme-switch role="radiogroup" aria-label="Appearance">
+        <span class="thumb" aria-hidden="true"></span>
+        <button role="radio" data-choice="light">Light</button>
+        <button role="radio" data-choice="dark">Dark</button>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -197,6 +235,7 @@ function tip(id, figure, text, x, y) {
 
 // ------------------------------------------------------------ dot histogram
 
+let shownBins = {};               // dots per bin last time, so only new ones animate
 function drawHistogram(readings, median) {
   const svg = $('hist');
   const W = Math.max(320, svg.clientWidth || 800), H = Math.round(Math.min(420, Math.max(220, W * 0.38)));
@@ -218,7 +257,7 @@ function drawHistogram(readings, median) {
   const tallest = Math.max(1, ...counts);
   const rad = Math.max(4, Math.min(binW * 0.4, (plotH / tallest) / 2 - 1, 16));
 
-  const surface = cssVar('--ground'), mark = cssVar('--mark'), rule = cssVar('--rule'), ink = cssVar('--ink');
+  const surface = cssVar('--card'), mark = cssVar('--tint'), rule = cssVar('--rule'), ink = cssVar('--ink');
   el('line', { x1: padL, x2: W - padR, y1: base + 0.5, y2: base + 0.5, stroke: rule, 'stroke-width': 1 }, svg);
   for (let v = Math.ceil(lo / 10) * 10; v <= hi; v += 10) {
     el('line', { x1: x(v), x2: x(v), y1: base, y2: base + 5, stroke: rule, 'stroke-width': 1 }, svg);
@@ -234,13 +273,17 @@ function drawHistogram(readings, median) {
     el('text', { x: x(median), y: padT - 12, 'text-anchor': 'middle', style: `fill:${ink}` }, svg)
       .textContent = `median ${Math.round(median)}`;
   }
+  const before = shownBins;
+  shownBins = {};
   counts.forEach((n, i) => {
-    const cx = padL + (i + 0.5) * binW;
+    const cx = padL + (i + 0.5) * binW, from = lo + i * BIN;
+    shownBins[from] = n;
     for (let k = 0; k < n; k++) {
-      el('circle', { cx, cy: base - rad - 1 - k * (2 * rad + 2), r: rad, fill: mark, stroke: surface, 'stroke-width': 2 }, svg);
+      // Only a dot that was not there a second ago pops in.
+      el('circle', { cx, cy: base - rad - 1 - k * (2 * rad + 2), r: rad, fill: mark, stroke: surface, 'stroke-width': 2,
+                     class: k >= (before[from] || 0) ? 'dot-mark' : '' }, svg);
     }
     // Hover target: the whole column, bigger than the dots.
-    const from = lo + i * BIN;
     const hit = el('rect', { x: padL + i * binW, y: padT, width: binW, height: plotH, fill: 'transparent' }, svg);
     hit.addEventListener('pointermove', (e) => tip('histTip', svg.parentNode,
       `${from}–${from + BIN - 1} bpm · ${n} ${n === 1 ? 'person' : 'people'}`, e.clientX, e.clientY));
@@ -270,7 +313,7 @@ function drawChecks(checks) {
   const lo = Math.min(50, Math.floor((Math.min(...all) - 5) / 10) * 10);
   const hi = Math.max(120, Math.ceil((Math.max(...all) + 5) / 10) * 10);
   const sx = (v) => pad + (v - lo) / (hi - lo) * plot, sy = (v) => 10 + plot - (v - lo) / (hi - lo) * plot;
-  const surface = cssVar('--ground'), mark = cssVar('--mark'), rule = cssVar('--rule'), muted = cssVar('--muted');
+  const surface = cssVar('--card'), mark = cssVar('--tint'), rule = cssVar('--rule'), muted = cssVar('--muted');
 
   // ±5 bpm agreement band, then the diagonal.
   el('polygon', { points: [[lo, lo + 5], [hi - 5, hi], [hi, hi], [hi, hi - 5], [lo + 5, lo], [lo, lo]]
@@ -371,11 +414,26 @@ async function poll() {
   setTimeout(poll, 1000);
 }
 
+// A stat counts to its new value instead of jumping.
+function countTo(id, value) {
+  const node = $(id), from = Number(node.textContent);
+  if (value === null || !Number.isFinite(from) || reduceMotion) { node.textContent = value === null ? '–' : value; return; }
+  if (from === value) return;
+  const start = performance.now(), dur = 600;
+  cancelAnimationFrame(node._raf);
+  const step = (now) => {
+    const k = Math.min(1, (now - start) / dur), e = 1 - (1 - k) ** 3;
+    node.textContent = Math.round(from + (value - from) * e);
+    if (k < 1) node._raf = requestAnimationFrame(step);
+  };
+  node._raf = requestAnimationFrame(step);
+}
+
 function render(d) {
   const r = d.readings;
-  $('connected').textContent = d.connected;
-  $('reading').textContent = r.length;
-  $('median').textContent = d.median === null ? '–' : Math.round(d.median);
+  countTo('connected', d.connected);
+  countTo('reading', r.length);
+  countTo('median', d.median === null ? null : Math.round(d.median));
   $('range').textContent = r.length ? `${Math.round(r[0])}–${Math.round(r[r.length - 1])}` : '–';
   drawHearts(d.hearts || []);
   drawChecks(d.checks);
@@ -396,7 +454,8 @@ $('resetBtn').onclick = async () => {
 };
 
 window.addEventListener('resize', () => last && render(last));
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => last && render(last));
+Theme.bind($('theme'));
+Theme.onChange(() => last && render(last));
 poll();
 </script>
 </body>
