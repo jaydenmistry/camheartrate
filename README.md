@@ -67,6 +67,7 @@ The page shows the camera, the patch of skin being read (outlined), your heart r
 * **Tap to choose.** Click any skin in the picture to read from exactly there. *Pick skin automatically* undoes that.
 * **Hold still for 5–10 s.** The outline is dashed while it measures and turns solid once it has a reading. With the screen light off it also flushes red on every beat.
 * **Screen light** (on by default) turns the page white so your display lights your skin with steady, neutral light. Turn display brightness all the way up, use *Full screen*, and sit within about an arm's length. Under the light the beat animation stops, since a flickering screen would add a fake pulse to the light it casts.
+* **Magnify the pulse.** Shows the camera view with its colour changes amplified (Eulerian video magnification, Wu et al. 2012), so the skin visibly flushes on every beat. Each frame is averaged down to 40 pixels wide, every pixel's colour goes through a fixed 45–180 bpm band-pass, and the result is multiplied (×0–150, slider on the video) and laid back over the picture. The band is fixed and wide rather than tuned to the measured rate, so what flushes is the change the camera really recorded: a narrow filter would turn plain noise into a convincing beat. Movement is magnified as much as blood, so hold very still. It runs in the browser only, and while it is on the drawn beat flush is off. Presenter keys: `M` on/off, `[` and `]` strength.
 * **Cameras.** It picks each camera's best mode up to 1080p, preferring frame rate. On a MacBook Pro the built-in FaceTime HD camera tops out at 1080p **30 fps** at every resolution. An iPhone used as a Continuity Camera runs 1080p **60 fps**, and when one is nearby a *Use … camera* link appears. Keep macOS video effects (Portrait, Studio Light, Center Stage in Control Center) off: they repaint skin tone and brightness, which is the very thing being measured.
 
 Demo controls are on the keyboard only: `1` `2` `3` switch the method (POS, CHROM, raw green), `S` toggles the built-in simulation, and in the simulation `↑` `↓` change the injected heart rate and `←` `→` the amount of head movement.
@@ -138,6 +139,8 @@ A 15 s rolling buffer of `(t, R̄, Ḡ, B̄)` samples, one triple per skin patch
 
 ### Suggested lecture demo
 
+Open on the magnified face: press `M` and hold still, and the projector shows your skin flushing with each beat. Then press `[` down to ×0 to show how little the camera actually sees, which is why the rest of the processing exists.
+
 With the deployed site, open `https://your-domain/?presenter=<key>` on your laptop and, from its *Class view* link, the class view on the projector. If you rehearsed, click *Clear pulse checks* there first. Ask everyone to scan the QR code, hold still for 15 s, then press *Check with your pulse*. Watch the dots fill in and land on the diagonal.
 
 1. Start on the webcam with POS. Sit still under steady light, wait for the solid outline, and compare with a pulse oximeter or a finger on the wrist. Hold up a palm and watch it switch.
@@ -163,6 +166,7 @@ The full DSP output (BVP waveform, spectrum, RGB traces, SQI, RMSSD) is still st
 | `rppg_session.py` | deployed mode: one DSP engine per browser, fed with that browser's skin-patch averages; its own simulation |
 | `rppg_class.py` | deployed mode: everyone's latest reading and pulse checks, pooled across worker processes for the class view |
 | `static/index.html` | the app page: camera, skin outline, heart rate, one-minute graph (plain HTML/CSS/canvas) |
+| `static/magnify.js` | pulse magnifier: Eulerian colour magnification of the camera view (band-pass per pixel, amplified, overlaid) |
 | `static/browser.js` | deployed mode: the visitor's camera, MediaPipe face/hand tracking, region choice, per-frame skin averaging |
 | `static/class.html` | projector view at `/class`: connected count, everyone's heart rate, pulse checks, QR code to join |
 | `Dockerfile`, `requirements-web.txt` | the deployable server (browser mode) |

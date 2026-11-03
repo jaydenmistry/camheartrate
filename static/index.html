@@ -80,6 +80,16 @@
   .stage img, .stage video { object-fit: cover; display: block; }
   .stage video { transform: scaleX(-1); }     /* a selfie view; the outline is mirrored to match */
   .stage svg { pointer-events: none; overflow: visible; }
+  /* Pulse magnifier (magnify.js): the video with its colour changes amplified, drawn on top. */
+  .stage canvas.mag { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .stage canvas.mag.mirror { transform: scaleX(-1); }
+  .mag-ctl {
+    position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 10px;
+    background: var(--scrim); color: var(--on-stage); padding: 6px 14px; border-radius: 999px; font-size: 14px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); cursor: default;
+    font-variant-numeric: tabular-nums;
+  }
+  .mag-ctl input { width: clamp(90px, 14vw, 160px); accent-color: var(--blood); }
   .roi {
     fill: rgb(var(--flush) / calc(0.04 + var(--beat) * 0.30));
     stroke: var(--on-stage);
@@ -196,10 +206,15 @@
   <div class="stage" id="stage" data-phase="none">
     <img id="video" alt="Live camera view. Tap any skin to measure there.">
     <video id="cam" playsinline muted hidden aria-label="Live camera view. Tap your face or palm to measure there."></video>
+    <canvas class="mag" id="mag" hidden aria-label="The camera view with the pulse's colour change magnified"></canvas>
     <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><path id="roi" class="roi" d=""/></svg>
     <div class="placeholder" id="placeholder">Starting the camera…</div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div class="progress" id="progress" hidden><span></span></div>
+    <div class="mag-ctl" id="magCtl" hidden>
+      <label for="magRange" id="magLabel">Colour change ×60</label>
+      <input type="range" id="magRange" min="0" max="150" step="10" value="60">
+    </div>
   </div>
 
   <div class="status" id="status" data-phase="none">
@@ -211,6 +226,7 @@
     <div class="controls">
       <a class="link" id="classLink" target="_blank" rel="noopener" hidden>Class view</a>
       <button class="link" id="checkBtn" hidden>Check with your pulse</button>
+      <button class="link" id="magBtn" hidden>Magnify the pulse</button>
       <button class="link" id="autoBtn" hidden>Pick skin automatically</button>
       <span class="mode" id="mode"></span>
       <button class="link" id="camBtn" hidden></button>
@@ -330,15 +346,55 @@ $('camBtn').onclick = () => {
   toast(`Switching to ${$('camBtn').dataset.name}`);
 };
 
-// Demo controls stay off screen: 1/2/3 method, S simulation, arrows tune the simulation.
+// ------------------------------------------------------------- pulse magnifier
+// Amplifies the colour change in the video itself, so the skin visibly flushes
+// on each beat (magnify.js). Runs in this browser only; nothing extra is sent.
+const mag = { on: false, tool: null, strength: 60 };
+async function setMagnify(on) {
+  if (on && !mag.tool) {
+    const { Magnifier } = await import('/static/magnify.js');
+    mag.tool = new Magnifier($('mag'));
+    mag.tool.setStrength(mag.strength);
+  }
+  mag.on = on;
+  $('magBtn').textContent = on ? 'Stop magnifying' : 'Magnify the pulse';
+  $('magCtl').hidden = !on;
+  if (on) toast('Hold very still: movement is magnified too.');
+  st.dirty = true;
+  if (mag.tool) { magSource(); mag.tool.setOn(on); }
+}
+function setMagStrength(s) {
+  mag.strength = Math.max(0, Math.min(150, s));
+  $('magRange').value = mag.strength;
+  $('magLabel').textContent = mag.strength ? `Colour change ×${mag.strength}` : 'Colour change ×0, as the camera sees it';
+  if (mag.tool) mag.tool.setStrength(mag.strength);
+}
+// Magnify whatever is on screen: this browser's camera (mirrored), or frames from the server.
+function magSource() {
+  if (!mag.tool) return;
+  const cam = browserCam && !$('cam').hidden;
+  mag.tool.setSource(cam ? $('cam') : video);
+  $('mag').classList.toggle('mirror', cam);
+}
+$('magBtn').onclick = () => setMagnify(!mag.on);
+$('magRange').oninput = () => setMagStrength(Number($('magRange').value));
+$('magCtl').addEventListener('click', (e) => e.stopPropagation());     // not a tap on the skin
+
+// Demo controls stay off screen: 1/2/3 method, S simulation, arrows tune the simulation,
+// M magnifier, [ and ] its strength.
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (chk.on && !chk.done && e.key === ' ') { e.preventDefault(); if (!e.repeat) tapBeat(); return; }
   if (!st.tele) return;
   const t = st.tele, sim = t.synthetic;
   if (mode === 'browser' && !t.presenter) return;
+  if (e.target instanceof HTMLInputElement) return;
   const methods = { '1': 'POS', '2': 'CHROM', '3': 'GREEN' };
-  if (methods[e.key]) {
+  if (e.key === 'm' || e.key === 'M') {
+    setMagnify(!mag.on);
+  } else if (mag.on && (e.key === '[' || e.key === ']')) {
+    setMagStrength(mag.strength + (e.key === ']' ? 10 : -10));
+  } else if (methods[e.key]) {
     send({ type: 'algorithm', value: methods[e.key] });
     toast(`Method: ${METHOD[methods[e.key]]}`);
   } else if (e.key === 's' || e.key === 'S') {
@@ -522,6 +578,8 @@ function render(t) {
   stage.dataset.phase = phase;
   $('autoBtn').hidden = !(t.region && t.region.locked);
   $('checkBtn').hidden = !(t.source === 'camera' && t.region) || (chk.on && !chk.done);
+  $('magBtn').hidden = !(t.source === 'camera' || t.source === 'synthetic');
+  if (mag.on) magSource();
 
   const cam = t.camera, cams = t.cameras || [];
   $('mode').textContent = cam ? `${cam.height}p at ${Math.round(cam.fps)} fps${cam.held ? ', exposure held' : ''}` : '';
@@ -701,7 +759,8 @@ function frame(ts) {
   const dt = Math.min(0.1, (ts - lastTs) / 1000); lastTs = ts;
   if (st.dirty) { render(current()); st.dirty = false; }
   let beat = 0;
-  if (st.hr && !reduceMotion && !light && !chk.on) {
+  // No drawn flush while magnifying: then every colour change on screen is the camera's.
+  if (st.hr && !reduceMotion && !light && !chk.on && !mag.on) {
     st.phase = (st.phase + dt * st.hr / 60) % 1;
     beat = st.phase < 0.12 ? st.phase / 0.12 : Math.exp(-(st.phase - 0.12) * 7);   // fast rise, slow fall
   }
