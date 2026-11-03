@@ -53,7 +53,7 @@ Environment variables (Dokploy: *Environment* tab):
 
 **Pulse wave.** The presenter's page (and the local version) also draws the pulse the DSP extracted over the last 6 seconds, after the colour projection and filtering, with a dot on each beat the peak finder picked. It arrives about four times a second and scrolls smoothly in between. Students' pages don't get it, so their traffic stays small.
 
-**Differences from the local version.** The local version (`RPPG_SOURCE=camera`, the default) reads this Mac's camera through AVFoundation at up to 60 fps with hardware timestamps, and can also measure any exposed skin, such as an arm. In the browser, cameras usually give 30 fps, timestamps come from the browser, and only the face and palm are tracked. Tap the face or palm to lock onto it. The keyboard demo controls (`1` `2` `3`, `S`, arrows) work locally, and on the deployed site for the presenter link only.
+**Differences from the local version.** The local version (`RPPG_SOURCE=camera`, the default) reads this Mac's camera through AVFoundation at up to 60 fps with hardware timestamps, and can also measure any exposed skin, such as an arm. In the browser, cameras usually give 30 fps, timestamps come from the browser, and only the face and palm are tracked. Tap the face or palm to lock onto it. The keyboard demo controls (`1` `2` `3`, `S`, arrows, `M` `[` `]`, `N` `X` `T`) work locally, and on the deployed site for the presenter link only.
 
 **Tracking files are served from your server.** The Docker build runs `fetch_assets.py`, which downloads MediaPipe's JavaScript and WebAssembly, the face and hand models, and the QR code library (about 30 MB) into `static/vendor/`, each checked against a pinned SHA-256. Students' browsers then need to reach only your domain (and Google Fonts, which is optional). Without those files, for example running from a fresh checkout, the page falls back to cdn.jsdelivr.net, storage.googleapis.com and cdnjs. To serve them locally too, run `python fetch_assets.py` once.
 
@@ -149,6 +149,13 @@ With the deployed site, open `https://your-domain/?presenter=<key>` on your lapt
 4. Press `3` (raw green): the reading jumps to the nodding rhythm, often 50–90 bpm off.
 5. Raw green can even report a confident lock on the wrong rate. Signal quality measures *periodicity*, and a rhythmic nod is periodic too. Rejecting it takes the colour-space projection, not the spectrum.
 
+**Live experiment.** With a volunteer at the presenter laptop, press `N` to drop a numbered mark on the graph (it switches to the last 5 minutes; `T` switches back and forth, `X` clears the marks). The line under the graph then compares the heart rate at the latest mark with now, gives the lowest and highest since, and after a minute the rate one minute after the mark. Two that work well:
+
+* **Exercise recovery.** 30 s of jumping jacks, then sit down and press `N`. The rate climbs, then falls. The drop in the first minute is the heart-rate recovery used in exercise testing; 12 bpm or more is normal. Stay still while measuring: the camera needs the volunteer seated and quiet.
+* **Diving reflex.** Press `N`, then the volunteer holds their breath with a cold, wet cloth over their face for up to 30 s. The heart rate typically falls by 10–25 %. Only with a healthy, willing volunteer, and stop at any discomfort.
+
+The readout is smoothed (see *Readout* above), so it trails a fast change by a few seconds. For ground truth, have the volunteer wear a pulse oximeter or watch and read it out.
+
 The full DSP output (BVP waveform, spectrum, RGB traces, SQI, RMSSD) is still streamed in every telemetry message and available at `/api/telemetry`.
 
 ## Files
@@ -165,7 +172,7 @@ The full DSP output (BVP waveform, spectrum, RGB traces, SQI, RMSSD) is still st
 | `fetch_assets.py` | downloads the browser tracking files and QR library into `static/vendor/`, checksum-pinned (the Docker build runs it) |
 | `rppg_session.py` | deployed mode: one DSP engine per browser, fed with that browser's skin-patch averages; its own simulation |
 | `rppg_class.py` | deployed mode: everyone's latest reading and pulse checks, pooled across worker processes for the class view |
-| `static/index.html` | the app page: camera, skin outline, heart rate, one-minute graph (plain HTML/CSS/canvas) |
+| `static/index.html` | the app page: camera, skin outline, heart rate, 1- or 5-minute graph with marks (plain HTML/CSS/canvas) |
 | `static/magnify.js` | pulse magnifier: Eulerian colour magnification of the camera view (band-pass per pixel, amplified, overlaid) |
 | `static/browser.js` | deployed mode: the visitor's camera, MediaPipe face/hand tracking, region choice, per-frame skin averaging |
 | `static/class.html` | projector view at `/class`: connected count, everyone's heart rate, pulse checks, QR code to join |

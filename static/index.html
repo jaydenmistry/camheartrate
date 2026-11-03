@@ -190,6 +190,8 @@
   .trend { display: grid; gap: 4px; min-width: 0; }
   .trend canvas { width: 100%; height: clamp(120px, 17vh, 170px); display: block; }
   .trend-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; padding-right: 34px; }
+  .trend-note { font-size: 15px; font-variant-numeric: tabular-nums; }
+  .trend-note b { font-weight: 650; }
 
   @media (max-width: 640px) {
     .readout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
@@ -251,7 +253,8 @@
     </div>
     <div class="trend">
       <canvas id="trend" aria-label="Heart rate over the last minute"></canvas>
-      <div class="trend-axis"><span>1 min ago</span><span>now</span></div>
+      <div class="trend-axis"><span id="trendStart">1 min ago</span><span>now</span></div>
+      <div class="trend-note" id="trendNote" hidden></div>
     </div>
   </section>
 
@@ -266,14 +269,15 @@ const $ = (id) => document.getElementById(id);
 const stage = $('stage'), video = $('video'), roi = $('roi'), statusEl = $('status');
 const LABEL = { face: 'your face', palm: 'your palm', skin: 'the outlined skin', simulated: 'the simulated face' };
 const METHOD = { POS: 'POS', CHROM: 'CHROM', GREEN: 'raw green channel' };
-const HISTORY_S = 60, SAMPLE_MS = 500;
+const HISTORY_S = 300, SAMPLE_MS = 500;   // kept; the graph shows the last 1 or 5 minutes (presenter: T)
 const MIN_SKIN_AREA = 0.004;    // skin smaller than this share of the picture: too far away
 const MIN_BRIGHTNESS = 40;      // mean skin luma (0-255) below this: too little light
 // A deployed page only offers the demo keys to the presenter: open it with ?presenter=<RPPG_PRESENTER_KEY>.
 const PRESENTER_KEY = new URLSearchParams(location.search).get('presenter') || '';
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const st = { tele: null, dirty: false, ar: null, noticeId: null, hr: null, phase: 0, history: [], lastSample: 0 };
+const st = { tele: null, dirty: false, ar: null, noticeId: null, hr: null, phase: 0, history: [], lastSample: 0,
+             window: 60, marks: [] };
 
 // "server": show this machine's camera, measured by the server (local demo).
 // "browser": measure this browser's own camera (deployed); see static/browser.js.
@@ -380,8 +384,53 @@ $('magBtn').onclick = () => setMagnify(!mag.on);
 $('magRange').oninput = () => setMagStrength(Number($('magRange').value));
 $('magCtl').addEventListener('click', (e) => e.stopPropagation());     // not a tap on the skin
 
+// ------------------------------------------------------------- marks
+// For a live experiment (exercise, then rest; a breath-hold): N drops a
+// numbered mark on the graph, and the line under it compares the heart rate
+// then with now. T switches the graph between the last 1 and 5 minutes.
+function setWindow(s) {
+  st.window = s;
+  $('trendStart').textContent = s === 60 ? '1 min ago' : `${s / 60} min ago`;
+  $('trend').setAttribute('aria-label', `Heart rate over the last ${s === 60 ? 'minute' : `${s / 60} minutes`}`);
+  drawTrend();
+}
+function addMark() {
+  const now = performance.now();
+  st.marks.push({ t: now, n: st.marks.length + 1 });
+  if (st.window === 60) setWindow(300);
+  toast(`Mark ${st.marks.length}`);
+  drawTrend();
+}
+// The reading nearest a moment, within 3 s.
+function bpmAt(ts) {
+  let best = null;
+  for (const p of st.history) {
+    if (p.bpm !== null && Math.abs(p.t - ts) <= 3000 && (!best || Math.abs(p.t - ts) < Math.abs(best.t - ts))) best = p;
+  }
+  return best ? best.bpm : null;
+}
+const clock = (ms) => { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(Math.round(v))}`;
+function markNote() {
+  const note = $('trendNote'), m = st.marks[st.marks.length - 1];
+  note.hidden = !m;
+  if (!m) return;
+  const now = performance.now(), then = bpmAt(m.t), cur = st.hr;
+  const since = st.history.filter(p => p.t >= m.t && p.bpm !== null).map(p => p.bpm);
+  const parts = [`Since mark ${m.n} (${clock(now - m.t)} ago):`];
+  if (then === null) parts.push('no reading at the mark.');
+  else {
+    parts.push(cur === null ? `<b>${Math.round(then)}</b> bpm then, no reading now.`
+      : `<b>${Math.round(then)} → ${Math.round(cur)}</b> bpm, ${signed(cur - then)} (${signed((cur - then) / then * 100)}%).`);
+    if (since.length) parts.push(`Lowest ${Math.round(Math.min(...since))}, highest ${Math.round(Math.max(...since))}.`);
+    const later = now - m.t >= 60000 ? bpmAt(m.t + 60000) : null;
+    if (later !== null) parts.push(`One minute after: ${Math.round(later)} (${signed(later - then)}).`);
+  }
+  note.innerHTML = parts.join(' ');
+}
+
 // Demo controls stay off screen: 1/2/3 method, S simulation, arrows tune the simulation,
-// M magnifier, [ and ] its strength.
+// M magnifier, [ and ] its strength, N mark, X clear marks, T 1 or 5 minutes.
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (chk.on && !chk.done && e.key === ' ') { e.preventDefault(); if (!e.repeat) tapBeat(); return; }
@@ -392,6 +441,12 @@ document.addEventListener('keydown', (e) => {
   const methods = { '1': 'POS', '2': 'CHROM', '3': 'GREEN' };
   if (e.key === 'm' || e.key === 'M') {
     setMagnify(!mag.on);
+  } else if (e.key === 'n' || e.key === 'N') {
+    addMark();
+  } else if ((e.key === 'x' || e.key === 'X') && st.marks.length) {
+    st.marks = []; toast('Marks cleared'); drawTrend();
+  } else if (e.key === 't' || e.key === 'T') {
+    setWindow(st.window === 60 ? 300 : 60);
   } else if (mag.on && (e.key === '[' || e.key === ']')) {
     setMagStrength(mag.strength + (e.key === ']' ? 10 : -10));
   } else if (methods[e.key]) {
@@ -649,7 +704,10 @@ function drawTrend() {
   const padR = 34, padT = 8, padB = 6;
   const plotW = W - padR, plotH = H - padT - padB;
 
-  const pts = st.history.filter(p => p.bpm !== null);
+  const now = performance.now(), span = st.window * 1000;
+  const shown = st.history.filter(p => now - p.t <= span + SAMPLE_MS);
+  const pts = shown.filter(p => p.bpm !== null);
+  markNote();
   let lo = 60, hi = 100;
   if (pts.length) {
     const vals = pts.map(p => p.bpm);
@@ -659,8 +717,7 @@ function drawTrend() {
   }
   const step = hi - lo > 60 ? 20 : 10;
   const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
-  const now = performance.now();
-  const x = (ts) => plotW * (1 - (now - ts) / (HISTORY_S * 1000));
+  const x = (ts) => plotW * (1 - (now - ts) / span);
 
   ctx.font = `400 12px ${font}`;
   ctx.textBaseline = 'middle';
@@ -670,9 +727,23 @@ function drawTrend() {
     ctx.fillStyle = muted; ctx.fillText(String(v), plotW + 8, y(v));
   }
 
+  // Marks: a dashed line and the mark's number.
+  for (const m of st.marks) {
+    if (now - m.t > span) continue;
+    const mx = Math.round(x(m.t)) + 0.5;
+    ctx.save();
+    ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(mx, padT + 14); ctx.lineTo(mx, padT + plotH); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = ink; ctx.font = `600 12px ${font}`; ctx.textAlign = 'center';
+    ctx.fillText(String(m.n), mx, padT + 6);
+    ctx.textAlign = 'start'; ctx.font = `400 12px ${font}`;
+  }
+
   if (!pts.length) {
     ctx.fillStyle = muted; ctx.textAlign = 'center'; ctx.font = `400 14px ${font}`;
-    ctx.fillText('Your heart rate over the last minute will draw here.', plotW / 2, padT + plotH / 2);
+    ctx.fillText(`Your heart rate over the last ${st.window === 60 ? 'minute' : `${st.window / 60} minutes`} will draw here.`,
+                 plotW / 2, padT + plotH / 2);
     ctx.textAlign = 'start';
     return;
   }
@@ -680,7 +751,7 @@ function drawTrend() {
   // Split into runs so gaps (no reading) stay visible as breaks in the line.
   const runs = [];
   let run = [];
-  for (const p of st.history) {
+  for (const p of shown) {
     if (p.bpm === null) { if (run.length) runs.push(run); run = []; } else run.push(p);
   }
   if (run.length) runs.push(run);
