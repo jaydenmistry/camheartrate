@@ -85,6 +85,25 @@
   .reset:hover { text-decoration-color: var(--ink); }
   .reset:focus-visible { outline: 2px solid var(--blood); outline-offset: 3px; border-radius: 2px; }
   .status.bad { color: var(--blood); }
+
+  /* Wall of hearts: one per connected camera, each beating at its measured rate. */
+  .hearts-wrap { display: grid; gap: 8px; }
+  .hearts {
+    --size: 96px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size), 1fr)); gap: 6px 4px;
+    min-height: calc(var(--size) + 28px); align-content: start;
+  }
+  .heart { display: grid; justify-items: center; gap: 2px; transition: opacity 0.5s; }
+  .heart.gone { opacity: 0; }
+  .heart svg { width: calc(var(--size) * 0.82); height: auto; overflow: visible; will-change: transform; }
+  .heart path { fill: var(--mark); stroke: var(--ground); stroke-width: 1; transition: fill 0.6s; }
+  .heart.waiting path { fill: var(--muted); opacity: 0.4; }
+  .heart span {
+    font-size: calc(var(--size) * 0.2); font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1;
+    color: var(--ink);
+  }
+  .heart.waiting span { color: var(--muted); font-weight: 400; }
+  .hearts-empty { color: var(--muted); font-size: 16px; align-self: center; grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -102,6 +121,12 @@
     <div class="stat"><b id="reading">0</b><span>with a reading</span></div>
     <div class="stat"><b id="median">–</b><span>median bpm</span></div>
     <div class="stat"><b id="range">–</b><span>range, bpm</span></div>
+  </section>
+
+  <section class="hearts-wrap" aria-label="Every heart in the room">
+    <div class="chart-title">Every heart in the room</div>
+    <div class="hearts" id="hearts"><div class="hearts-empty" id="heartsEmpty">A heart appears here for everyone who joins.</div></div>
+    <figcaption>Each heart beats at the rate its own camera measures. Grey hearts are still measuring.</figcaption>
   </section>
 
   <section class="charts" id="charts">
@@ -268,6 +293,64 @@ function drawChecks(checks) {
   }
 }
 
+// ------------------------------------------------------------ wall of hearts
+// One heart per connected camera, in the order people joined, beating at the
+// rate that camera measures. Phases start at random, so the room is out of step,
+// as real hearts are. Nothing but the rate is shown.
+
+const HEART = 'M12 21C12 21 3 14.6 3 8.6A4.6 4.6 0 0 1 12 6.4A4.6 4.6 0 0 1 21 8.6C21 14.6 12 21 12 21Z';
+const hearts = new Map();          // id -> { el, label, svg, bpm, phase }
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function drawHearts(list) {
+  const box = $('hearts'), seen = new Set();
+  for (const [id, bpm] of list) {
+    seen.add(id);
+    let h = hearts.get(id);
+    if (!h) {
+      const node = document.createElement('div');
+      node.className = 'heart';
+      const svg = el('svg', { viewBox: '0 0 24 24' });
+      el('path', { d: HEART }, svg);
+      const label = document.createElement('span');
+      node.append(svg, label);
+      box.appendChild(node);
+      h = { el: node, svg, label, bpm: null, phase: Math.random() };
+      hearts.set(id, h);
+    }
+    h.bpm = bpm;
+    h.el.classList.toggle('waiting', bpm === null);
+    h.label.textContent = bpm === null ? '…' : Math.round(bpm);
+    h.el.setAttribute('aria-label', bpm === null ? 'measuring' : `${Math.round(bpm)} bpm`);
+  }
+  for (const [id, h] of hearts) {
+    if (seen.has(id) || h.leaving) continue;
+    h.leaving = true; h.bpm = null;
+    h.el.classList.add('gone');
+    setTimeout(() => { h.el.remove(); hearts.delete(id); }, 500);
+  }
+  const n = list.length;
+  box.style.setProperty('--size', `${n <= 8 ? 140 : n <= 20 ? 104 : n <= 40 ? 80 : n <= 80 ? 60 : 46}px`);
+  $('heartsEmpty').hidden = n > 0;
+}
+
+// Fast rise, slower fall, with a smaller second bump: lub-dub.
+function beatShape(p) {
+  const bump = (c, w, a) => a * Math.exp(-(((p - c) / w) ** 2));
+  return bump(0.06, 0.045, 1) + bump(0.24, 0.05, 0.45);
+}
+let lastFrame = performance.now();
+function animateHearts(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  for (const h of hearts.values()) {
+    if (h.bpm === null || reduceMotion) { h.svg.style.transform = ''; continue; }
+    h.phase = (h.phase + dt * h.bpm / 60) % 1;
+    h.svg.style.transform = `scale(${(0.86 + 0.2 * beatShape(h.phase)).toFixed(3)})`;
+  }
+  requestAnimationFrame(animateHearts);
+}
+requestAnimationFrame(animateHearts);
+
 // ------------------------------------------------------------ data
 
 let last = null, noticeUntil = 0;     // a reset message stays up a few seconds
@@ -294,6 +377,7 @@ function render(d) {
   $('reading').textContent = r.length;
   $('median').textContent = d.median === null ? '–' : Math.round(d.median);
   $('range').textContent = r.length ? `${Math.round(r[0])}–${Math.round(r[r.length - 1])}` : '–';
+  drawHearts(d.hearts || []);
   drawChecks(d.checks);
   drawHistogram(r, d.median);
 }

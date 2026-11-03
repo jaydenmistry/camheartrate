@@ -5,7 +5,8 @@ writes them to a small JSON file every second; /api/class reads every
 worker's file. The files live in one directory (RPPG_CLASS_DIR, default
 <tmp>/rppg-class), which all workers in one container share. Nothing
 identifies anyone: one entry per connection with a reading and, after a
-pulse check, the tapped and camera rates.
+pulse check, the tapped and camera rates. Each connection also gets a random
+id, so the class view's heart for it stays in place from one second to the next.
 
 The presenter can clear the pulse checks (after a rehearsal, say): that writes
 a reset marker with the time, and checks from before it stop counting in every
@@ -19,6 +20,7 @@ import itertools
 import json
 import logging
 import os
+import secrets
 import statistics
 import tempfile
 import time
@@ -40,7 +42,7 @@ _past_checks: list[dict] = []   # a check stays in the class view after its page
 
 def register() -> int:
     key = next(_ids)
-    _entries[key] = {"t": time.time()}
+    _entries[key] = {"t": time.time(), "id": secrets.token_hex(4)}
     return key
 
 
@@ -122,8 +124,9 @@ def snapshot() -> dict:
 def summarise(entries: list[dict], now: float, checks_since: float = 0.0) -> dict:
     cameras = [e for e in entries if e.get("source") == "camera"]
     fresh = [e for e in cameras if now - e.get("t", 0) <= STALE_S]
-    readings = sorted(round(e["bpm"], 1) for e in fresh
-                      if e.get("bpm") is not None and e.get("status") in READING_STATUSES)
+    reading = lambda e: e.get("bpm") is not None and e.get("status") in READING_STATUSES
+    readings = sorted(round(e["bpm"], 1) for e in fresh if reading(e))
+    hearts = [[e.get("id") or str(i), round(e["bpm"], 1) if reading(e) else None] for i, e in enumerate(fresh)]
     checks = [[e["check"]["tapped"], e["check"]["camera"]] for e in entries
               if e.get("check") and e["check"].get("at", 0) >= checks_since]
     return {
@@ -131,5 +134,6 @@ def summarise(entries: list[dict], now: float, checks_since: float = 0.0) -> dic
         "measuring": sum(1 for e in fresh if e.get("measuring")),
         "readings": readings,
         "median": round(statistics.median(readings), 1) if readings else None,
+        "hearts": hearts,              # [id, bpm or None while measuring], one per camera
         "checks": checks,
     }
