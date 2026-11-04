@@ -6,10 +6,12 @@
 <title>Camera Heart Rate</title>
 <script src="/static/theme.js"></script>
 <style>
-  /* Apple Human Interface Guidelines look: system font, grouped background with
-     rounded cards, system colours, capsule buttons, a segmented control, and
-     motion that settles like a spring. The camera is the stage; under it one
-     line of status, then the heart rate and its graph. */
+  /* Apple-style (the apple-design skill): system font with size-specific
+     tracking, grouped background with rounded cards, system colours, capsule
+     buttons, a segmented control. Motion is a critically damped spring (no
+     overshoot: nothing here is flicked), feedback lands on press, and colour
+     changes ease so they can be reversed mid-way. The camera is the stage; under
+     it one line of status, then the heart rate and its graph. */
   :root {
     --ground: #f2f2f7;      /* systemGroupedBackground */
     --card: #ffffff;        /* secondarySystemGroupedBackground */
@@ -29,9 +31,14 @@
     --flush: 255 45 85;     /* rgb triplet for the beat flush over skin */
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
     --font-num: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
-    --spring: cubic-bezier(0.22, 1.2, 0.36, 1);       /* slight overshoot */
+    /* Spring, damping 1.0: response 0.4 s settles in 0.6 s, response 0.3 s in 0.45 s. */
+    --spring: cubic-bezier(0.2, 0.9, 0.25, 1);
     --ease: cubic-bezier(0.25, 1, 0.5, 1);
     color-scheme: light;
+  }
+  @supports (transition-timing-function: linear(0, 1)) {
+    :root { --spring: linear(0, 0.06, 0.186, 0.329, 0.466, 0.584, 0.682, 0.76, 0.821, 0.868, 0.903, 0.929,
+                             0.949, 0.963, 0.973, 0.981, 0.986, 0.99, 0.993, 0.995, 0.997, 0.998, 0.999, 1); }
   }
   :root[data-theme="dark"] {
     --ground: #000000; --card: #1c1c1e; --ink: #ffffff; --muted: #98989d; --rule: #38383a;
@@ -49,15 +56,17 @@
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { height: 100%; }
-  html { background: var(--ground); }
+  /* Text sizes are in rem, so the browser's text-size setting scales the page. */
+  html { background: var(--ground); font-size: 100%; -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
     background: var(--ground);
     color: var(--ink);
     font-family: var(--font);
-    font-size: 17px;
+    font-size: 1.0625rem;
     line-height: 1.4;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;                  /* tracking by size: body 0, display text tighter, small text looser */
+    font-optical-sizing: auto;
     -webkit-font-smoothing: antialiased;
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -74,7 +83,7 @@
 
   /* ---- entrance: each block rises into place, one after another ---- */
   @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
-  main > * { animation: rise 0.7s var(--spring) both; }
+  main > * { animation: rise 0.6s var(--spring) both; }
   main > *:nth-child(2) { animation-delay: 0.05s; }
   main > *:nth-child(3) { animation-delay: 0.1s; }
   main > *:nth-child(n+4) { animation-delay: 0.15s; }
@@ -82,7 +91,7 @@
   /* ---- header ---- */
   .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .title h1 { margin: 0; font-size: clamp(24px, 3.2vw, 34px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .title h1 { margin: 0; font-size: clamp(1.5rem, 3.2vw, 2.125rem); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
   .title svg { width: 30px; height: 30px; flex-shrink: 0; }
   .title svg path, .beat-heart path { fill: var(--tint); }
 
@@ -92,22 +101,25 @@
     background: var(--fill); border-radius: 9px; padding: 2px;
   }
   .segmented button {
-    position: relative; z-index: 1; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink);
-    background: none; border: 0; padding: 5px 16px; border-radius: 7px; cursor: pointer;
+    position: relative; z-index: 1; font: inherit; font-size: 0.8125rem; font-weight: 500; color: var(--ink);
+    background: none; border: 0; padding: 0.38em 1.2em; border-radius: 7px; cursor: pointer;
+    letter-spacing: 0.005em; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.1s ease-out;
   }
+  .segmented button:active { opacity: 0.55; }       /* feedback on press, not on release */
   .segmented button:focus-visible { outline: 2px solid var(--tint); outline-offset: 1px; }
   .segmented .thumb {
     position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px);
     background: var(--thumb); border-radius: 7px;
     box-shadow: 0 3px 8px rgb(0 0 0 / 0.12), 0 3px 1px rgb(0 0 0 / 0.04);
-    transition: transform 0.4s var(--spring), background-color 0.3s;
+    transition: transform 0.45s var(--spring), background-color 0.35s var(--ease);
   }
   .segmented[data-value="dark"] .thumb { transform: translateX(100%); }
 
   /* ---- cards ---- */
   .card {
     background: var(--card); border-radius: 20px; padding: 16px 18px; border: 1px solid transparent;
-    box-shadow: var(--shadow); transition: background-color 0.3s var(--ease);
+    box-shadow: var(--shadow);
   }
 
   /* ---- camera stage ---- */
@@ -132,13 +144,17 @@
   .stage canvas.mag.mirror { transform: scaleX(-1); }
   @keyframes fade-in { from { opacity: 0; } }
   .stage canvas.mag:not([hidden]) { animation: fade-in 0.5s var(--ease); }
+  /* Glass arrives as a material: blur, scale and opacity together, from its corner. */
+  @keyframes materialize { from { opacity: 0; transform: scale(0.94); filter: blur(6px); } }
   .mag-ctl {
     position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 10px;
-    background: var(--scrim); color: var(--on-stage); padding: 7px 14px; border-radius: 999px; font-size: 14px;
+    background: var(--scrim); color: var(--on-stage); padding: 7px 14px; border-radius: 999px; font-size: 0.875rem;
+    font-weight: 500; letter-spacing: 0.01em;       /* vibrancy: a touch heavier and looser over glass */
     backdrop-filter: blur(20px) saturate(1.8); -webkit-backdrop-filter: blur(20px) saturate(1.8); cursor: default;
-    font-variant-numeric: tabular-nums;
+    box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.18);   /* light catching the top edge */
+    font-variant-numeric: tabular-nums; transform-origin: top right;
   }
-  .mag-ctl:not([hidden]) { animation: rise 0.5s var(--spring); }
+  .mag-ctl:not([hidden]) { animation: materialize 0.6s var(--spring); }
   .mag-ctl input { width: clamp(90px, 14vw, 160px); accent-color: var(--tint); }
   .roi {
     fill: rgb(var(--flush) / calc(0.04 + var(--beat) * 0.30));
@@ -152,7 +168,7 @@
   @keyframes march { to { stroke-dashoffset: -11; } }
   .placeholder {
     position: absolute; inset: 0; display: grid; place-items: center; gap: 14px; align-content: center;
-    color: var(--on-stage); opacity: 0.75; font-size: 15px; text-align: center; padding: 16px;
+    color: var(--on-stage); opacity: 0.75; font-size: 0.9375rem; text-align: center; padding: 16px;
   }
   /* Activity indicator while the camera and tracking start. */
   .placeholder::before {
@@ -165,27 +181,30 @@
     position: absolute; left: 50%; bottom: 18px; transform: translate(-50%, 12px) scale(0.96);
     max-width: calc(100% - 32px);
     background: var(--scrim); color: var(--on-stage);
-    padding: 9px 16px; border-radius: 14px; font-size: 15px; font-weight: 500;
-    opacity: 0; transition: opacity 0.2s var(--ease), transform 0.45s var(--spring); pointer-events: none;
+    padding: 9px 16px; border-radius: 14px; font-size: 0.9375rem; font-weight: 500; letter-spacing: 0.005em;
+    opacity: 0; filter: blur(4px); pointer-events: none;
+    transition: opacity 0.25s var(--ease), transform 0.45s var(--spring), filter 0.3s var(--ease);
     backdrop-filter: blur(20px) saturate(1.8); -webkit-backdrop-filter: blur(20px) saturate(1.8);
+    box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.18);
   }
-  .toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  /* In and out along the same path: up from the bottom edge, back down to it. */
+  .toast.show { opacity: 1; filter: none; transform: translate(-50%, 0) scale(1); }
   /* Progress to the first reading, along the bottom edge of the camera. */
   .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgb(255 255 255 / 0.2); }
   .progress span {
-    display: block; height: 100%; width: calc(var(--p, 0) * 100%);
-    background: var(--tint); transition: width 0.35s var(--ease);
+    display: block; height: 100%; transform: scaleX(var(--p, 0)); transform-origin: left;
+    background: var(--tint); transition: transform 0.35s var(--ease);
   }
 
   /* ---- status line ---- */
   .status {
     display: flex; align-items: center; justify-content: space-between; gap: 10px 16px;
-    flex-wrap: wrap; font-size: 15px; min-height: 22px; padding-inline: 4px;
+    flex-wrap: wrap; font-size: 0.9375rem; min-height: 22px; padding-inline: 4px;
   }
   .status-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
   .dot {
     width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; align-self: center;
-    background: var(--muted); transform: scale(calc(1 + var(--beat, 0) * 0.45));
+    background: var(--muted); transform: scale(calc(1 + var(--beat, 0) * 0.45)); will-change: transform;
     transition: background-color 0.3s;
   }
   .status[data-phase="locked"] .dot { background: var(--tint); }
@@ -193,32 +212,32 @@
   .status-main { font-weight: 500; }
   .status-hint { color: var(--muted); }
   .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .mode { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; padding-inline: 4px; }
+  .mode { color: var(--muted); font-size: 0.8125rem; letter-spacing: 0.01em; font-variant-numeric: tabular-nums; padding-inline: 4px; }
   .mode:empty { display: none; }
   /* Capsule buttons, tinted grey (HIG "gray" button). */
   .link {
-    font: inherit; font-size: 15px; font-weight: 500; color: var(--blood); background: var(--fill);
-    border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; text-decoration: none;
-    transition: transform 0.35s var(--spring), background-color 0.2s;
-    -webkit-tap-highlight-color: transparent;
+    font: inherit; font-size: 0.9375rem; font-weight: 500; color: var(--blood); background: var(--fill);
+    border: 0; border-radius: 999px; padding: 0.4em 0.95em; cursor: pointer; text-decoration: none;
+    transition: transform 0.45s var(--spring), background-color 0.2s;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   }
   .link:hover { background: var(--fill-hover); }
-  .link:active { transform: scale(0.95); transition-duration: 0.08s; }
+  .link:active { transform: scale(0.97); background: var(--fill-hover); transition: transform 0.1s ease-out, background-color 0.1s; }
   .link:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
   .controls > *:not([hidden]) { animation: rise 0.45s var(--spring); }
 
   /* ---- pulse check ---- */
   .check { display: grid; gap: 12px; }
-  .check:not([hidden]) { animation: rise 0.5s var(--spring); }
+  .check:not([hidden]) { animation: rise 0.6s var(--spring); }
   .check p { margin: 0; }
   .check-row { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
   .tap {
-    font: inherit; font-size: 17px; font-weight: 600; color: #fff; background: var(--button);
-    border: 0; border-radius: 14px; padding: 14px 30px; cursor: pointer;
+    font: inherit; font-size: 1.0625rem; font-weight: 600; color: #fff; background: var(--button);
+    border: 0; border-radius: 14px; padding: 0.82em 1.75em; cursor: pointer;
     touch-action: manipulation; user-select: none; -webkit-user-select: none;
-    transition: transform 0.3s var(--spring);
+    transition: transform 0.45s var(--spring);
   }
-  .tap.hit { transform: scale(0.93); transition-duration: 0.06s; }
+  .tap.hit, .tap:active { transform: scale(0.95); transition: transform 0.1s ease-out; }
   .tap:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   /* While tapping, the camera's number is hidden so it cannot lead the tapping. */
   .readout .bpm, .readout .trend canvas { transition: filter 0.3s var(--ease); }
@@ -226,8 +245,8 @@
 
   /* ---- pulse wave (presenter) ---- */
   .wave { display: grid; gap: 6px; }
-  .wave-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; font-weight: 600; }
-  .wave-head span:last-child { color: var(--muted); font-size: 13px; font-weight: 400; }
+  .wave-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 0.9375rem; font-weight: 600; }
+  .wave-head span:last-child { color: var(--muted); font-size: 0.8125rem; font-weight: 400; letter-spacing: 0.01em; }
   .wave canvas { width: 100%; height: clamp(72px, 11vh, 120px); display: block; }
 
   /* ---- readout ---- */
@@ -235,12 +254,12 @@
     display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 28px; align-items: end;
   }
   .reading { display: grid; justify-items: start; min-width: 4.2ch; gap: 2px; }
-  .reading-head { display: flex; align-items: center; gap: 6px; color: var(--tint); font-size: 15px; font-weight: 600; }
-  .beat-heart { width: 18px; height: 18px; transform: scale(calc(1 + var(--beat, 0) * 0.28)); }
+  .reading-head { display: flex; align-items: center; gap: 6px; color: var(--tint); font-size: 0.9375rem; font-weight: 600; }
+  .beat-heart { width: 18px; height: 18px; transform: scale(calc(1 + var(--beat, 0) * 0.28)); will-change: transform; }
   .bpm-row { display: flex; align-items: baseline; gap: 6px; }
   .bpm {
     font-family: var(--font-num);
-    font-size: clamp(76px, 10vw, 128px);
+    font-size: clamp(4.75rem, 10vw, 8rem);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.03em;
@@ -249,8 +268,8 @@
     display: inline-block;
   }
   .bpm[data-quality="poor"], .bpm[data-quality="none"] { color: var(--muted); }
-  .unit { color: var(--muted); font-size: 20px; font-weight: 600; }
-  .signal { display: flex; align-items: flex-end; gap: 7px; color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .unit { color: var(--muted); font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; }
+  .signal { display: flex; align-items: flex-end; gap: 7px; color: var(--muted); font-size: 0.8125rem; letter-spacing: 0.01em; margin-top: 4px; }
   .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
   .bars i { width: 4px; border-radius: 1px; background: var(--rule); transition: background-color 0.3s; }
   .bars i:nth-child(1) { height: 4px; } .bars i:nth-child(2) { height: 7px; }
@@ -258,21 +277,45 @@
   .bars i.on { background: var(--ink); }
   .trend { display: grid; gap: 4px; min-width: 0; }
   .trend canvas { width: 100%; height: clamp(120px, 17vh, 170px); display: block; }
-  .trend-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; padding-right: 34px; }
-  .trend-note { font-size: 15px; font-variant-numeric: tabular-nums; }
-  .trend-note:not([hidden]) { animation: rise 0.5s var(--spring); }
+  .trend-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.8125rem; letter-spacing: 0.01em; padding-right: 34px; }
+  .trend-note { font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+  .trend-note:not([hidden]) { animation: rise 0.6s var(--spring); }
   .trend-note b { font-weight: 650; }
 
-  /* Theme change: the page cross-fades (View Transitions, where supported). */
-  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.35s; }
+  /* Light / Dark: for a moment (theme.js adds .theming) every colour eases to the
+     new appearance. Transitions start from the colour on screen, so switching back
+     mid-way turns around smoothly; nothing is locked while it happens. */
+  :root.theming, :root.theming *:not(.thumb):not(.toast) {
+    transition: background-color 0.35s var(--ease), color 0.35s var(--ease), border-color 0.35s var(--ease),
+                fill 0.35s var(--ease), stroke 0.35s var(--ease), box-shadow 0.35s var(--ease) !important;
+  }
 
   @media (max-width: 640px) {
     .readout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
     .stage { border-radius: 16px; }
     .card { border-radius: 16px; }
   }
+  /* Reduced motion keeps the feedback but drops the movement: things fade in
+     place, and colour changes still ease (a cross-fade, not a slide). */
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation: none !important; transition: none !important; }
+    @keyframes rise { from { opacity: 0; } }
+    @keyframes materialize { from { opacity: 0; } }
+    .toast, .toast.show { transform: translate(-50%, 0); filter: none; }
+    .link:active, .tap.hit, .tap:active { transform: none; }
+    .segmented .thumb { transition: background-color 0.35s var(--ease); }
+    .stage[data-phase="measuring"] .roi { animation: none; }
+    .progress span { transition: none; }
+  }
+  /* Reduced transparency: the glass turns solid. */
+  @media (prefers-reduced-transparency: reduce) {
+    :root { --scrim: rgb(28 28 30 / 0.94); }
+    .mag-ctl, .toast { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+  /* Increased contrast: darker secondary text and visible card edges. */
+  @media (prefers-contrast: more) {
+    :root { --muted: #3a3a3c; --rule: #c6c6c8; --scrim: rgb(0 0 0 / 0.88); }
+    :root[data-theme="dark"] { --muted: #c7c7cc; --rule: #545458; }
+    .card { border-color: var(--rule); }
   }
 </style>
 </head>
@@ -363,6 +406,7 @@ const MIN_BRIGHTNESS = 40;      // mean skin luma (0-255) below this: too little
 // A deployed page only offers the demo keys to the presenter: open it with ?presenter=<RPPG_PRESENTER_KEY>.
 const PRESENTER_KEY = new URLSearchParams(location.search).get('presenter') || '';
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const SPRING = getComputedStyle(document.documentElement).getPropertyValue('--spring').trim() || 'ease-out';
 
 const st = { tele: null, dirty: false, ar: null, noticeId: null, hr: null, phase: 0, history: [], lastSample: 0,
              window: 60, marks: [] };
@@ -600,8 +644,10 @@ function tapBeat() {
   const left = Math.max(1, Math.ceil(CHECK_S - (now - chk.taps[0]) / 1000));
   $('checkText').textContent = `${n} beat${n === 1 ? '' : 's'}${rate ? `, about ${round(rate)} bpm` : ''}. `
     + `Keep going for ${left} more second${left === 1 ? '' : 's'}.`;
+  // The press, a haptic tick (on phones that have one) and the new text land on the same frame.
   $('tapBtn').classList.add('hit');
-  setTimeout(() => $('tapBtn').classList.remove('hit'), 90);
+  if (navigator.vibrate) navigator.vibrate(8);
+  setTimeout(() => $('tapBtn').classList.remove('hit'), 100);
 }
 
 // Rate from the median gap between taps; gaps that look like a doubled or
@@ -759,10 +805,12 @@ function render(t) {
   const shownBpm = live ? String(Math.round(t.bpm)) : '–';
   if (bpmEl.textContent !== shownBpm) {
     bpmEl.textContent = shownBpm;
-    // The new number settles in from below, like a numeric text transition.
-    if (!reduceMotion && bpmEl.animate) bpmEl.animate(
-      [{ transform: 'translateY(0.12em)', opacity: 0.35, filter: 'blur(3px)' }, { transform: 'none', opacity: 1, filter: 'none' }],
-      { duration: 320, easing: 'cubic-bezier(0.22, 1.2, 0.36, 1)' });
+    // The new number settles in from below on a critically damped spring, like a
+    // numeric text transition; with reduced motion it only fades.
+    if (bpmEl.animate) bpmEl.animate(reduceMotion
+      ? [{ opacity: 0.35 }, { opacity: 1 }]
+      : [{ transform: 'translateY(0.12em)', opacity: 0.35, filter: 'blur(3px)' }, { transform: 'none', opacity: 1, filter: 'none' }],
+      { duration: reduceMotion ? 200 : 450, easing: SPRING });
   }
   bpmEl.dataset.quality = !live ? 'none' : t.status === 'HIGH MOTION NOISE' ? 'poor' : 'good';
   st.hr = live && t.status !== 'HIGH MOTION NOISE' ? t.bpm : null;

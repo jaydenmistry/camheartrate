@@ -22,22 +22,22 @@
     document.querySelectorAll('[data-theme-switch]').forEach(sync);
     listeners.forEach((f) => f(theme));
   }
+  // The colours ease to the new appearance: for a moment .theming gives every
+  // element a colour transition (see the pages' CSS). A transition starts from the
+  // colour on screen, so switching back mid-way turns around without a jump, and
+  // nothing blocks input meanwhile. Reduced motion keeps it: it is a fade.
+  let easing = 0;
   function set(next, { animate = true } = {}) {
     if (next === theme) return;
     theme = next;
     try { localStorage.setItem(KEY, next); } catch (e) { /* ignore */ }
-    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    // Cross-fade the whole page where the browser can (View Transitions). A
-    // window that renders no frames (covered, minimised) never starts the
-    // transition, so the change also applies on its own after 400 ms.
-    if (animate && !still && document.startViewTransition) {
-      let done = false;
-      const once = () => { if (!done) { done = true; apply(); } };
-      document.startViewTransition(once);
-      setTimeout(once, 400);
-    } else {
-      apply();
+    const root = document.documentElement;
+    if (animate) {
+      root.classList.add('theming');
+      clearTimeout(easing);
+      easing = setTimeout(() => root.classList.remove('theming'), 450);
     }
+    apply();
   }
   function bind(seg) {
     sync(seg);

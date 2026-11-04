@@ -7,7 +7,7 @@
 <script src="/static/theme.js"></script>
 <style>
   /* Projector view: how many people are connected, and everyone's heart rate.
-     Same Apple-style tokens as the measuring page. */
+     Same Apple-style tokens and motion as the measuring page (see its notes). */
   :root {
     --ground: #f2f2f7; --card: #ffffff; --ink: #000000; --muted: #6c6c70; --rule: #e5e5ea;
     --fill: rgb(120 120 128 / 0.12); --fill-hover: rgb(120 120 128 / 0.2); --thumb: #ffffff;
@@ -16,9 +16,13 @@
     --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.04);
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
     --font-num: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
-    --spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+    --spring: cubic-bezier(0.2, 0.9, 0.25, 1);       /* critically damped; linear() below */
     --ease: cubic-bezier(0.25, 1, 0.5, 1);
     color-scheme: light;
+  }
+  @supports (transition-timing-function: linear(0, 1)) {
+    :root { --spring: linear(0, 0.06, 0.186, 0.329, 0.466, 0.584, 0.682, 0.76, 0.821, 0.868, 0.903, 0.929,
+                             0.949, 0.963, 0.973, 0.981, 0.986, 0.99, 0.993, 0.995, 0.997, 0.998, 0.999, 1); }
   }
   :root[data-theme="dark"] {
     --ground: #000000; --card: #1c1c1e; --ink: #ffffff; --muted: #98989d; --rule: #38383a;
@@ -29,15 +33,17 @@
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--ground); color: var(--ink); }
+  html { font-size: 100%; -webkit-text-size-adjust: 100%; }
   body {
-    font-family: var(--font); font-size: 17px; line-height: 1.4; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased;
+    font-family: var(--font); font-size: 1.0625rem; line-height: 1.4; letter-spacing: 0; font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
     padding: clamp(16px, 2.6vw, 36px) max(16px, 3vw);
     transition: background-color 0.3s var(--ease), color 0.3s var(--ease);
   }
   main { max-width: 1400px; margin: 0 auto; display: grid; gap: clamp(14px, 2vh, 22px); }
 
   @keyframes rise { from { opacity: 0; transform: translateY(16px) scale(0.985); } }
-  main > * { animation: rise 0.7s var(--spring) both; }
+  main > * { animation: rise 0.6s var(--spring) both; }
   main > *:nth-child(2) { animation-delay: 0.06s; }
   main > *:nth-child(3) { animation-delay: 0.12s; }
   main > *:nth-child(n+4) { animation-delay: 0.18s; }
@@ -46,68 +52,70 @@
 
   header { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
   h1 {
-    margin: 0; font-size: clamp(30px, 4.2vw, 56px); font-weight: 700; line-height: 1.05; letter-spacing: -0.025em;
+    margin: 0; font-size: clamp(1.875rem, 4.2vw, 3.5rem); font-weight: 700; line-height: 1.05; letter-spacing: -0.025em;
   }
   .join { display: flex; align-items: center; gap: 16px; }
   .qr { background: #fff; padding: 8px; border-radius: 14px; line-height: 0; box-shadow: var(--shadow); }
   .qr img, .qr canvas { width: clamp(96px, 10vw, 150px); height: auto; }
   .join-text { display: grid; }
-  .join-label { color: var(--muted); font-size: 15px; }
-  .join-url { font-size: clamp(18px, 2vw, 28px); font-weight: 600; overflow-wrap: anywhere; }
+  .join-label { color: var(--muted); font-size: 0.9375rem; letter-spacing: 0.005em; }
+  .join-url { font-size: clamp(1.125rem, 2vw, 1.75rem); font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
   .stat { display: grid; gap: 2px; }
   .stat b {
-    font-family: var(--font-num); font-size: clamp(44px, 5.6vw, 84px); font-weight: 700; line-height: 1;
+    font-family: var(--font-num); font-size: clamp(2.75rem, 5.6vw, 5.25rem); font-weight: 700; line-height: 1;
     letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
   }
-  .stat span { color: var(--muted); font-size: 15px; font-weight: 500; }
+  .stat span { color: var(--muted); font-size: 0.9375rem; font-weight: 500; }
 
   .charts { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; }
   .charts.single { grid-template-columns: minmax(0, 1fr); }
   @media (max-width: 860px) { .charts { grid-template-columns: minmax(0, 1fr); } }
   figure { margin: 0; display: grid; gap: 8px; min-width: 0; position: relative; align-content: start; }
   figure:not([hidden]) { animation: rise 0.6s var(--spring) both; }
-  figcaption { color: var(--muted); font-size: 15px; }
-  .chart-title { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
+  figcaption { color: var(--muted); font-size: 0.9375rem; }
+  .chart-title { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.015em; }
   svg { width: 100%; height: auto; display: block; overflow: visible; }
-  svg text { font-family: var(--font); fill: var(--muted); font-size: 13px; }
-  .empty { fill: var(--muted); font-size: 16px; }
+  svg text { font-family: var(--font); fill: var(--muted); font-size: 0.8125rem; }
+  .empty { fill: var(--muted); font-size: 1rem; }
   @keyframes pop { from { transform: scale(0); } }
-  .dot-mark { transform-box: fill-box; transform-origin: center; animation: pop 0.5s var(--spring) both; }
+  .dot-mark { transform-box: fill-box; transform-origin: center; animation: pop 0.6s var(--spring) both; }
   .tip {
     position: absolute; pointer-events: none; background: var(--ink); color: var(--card);
-    font-size: 14px; font-weight: 500; padding: 5px 10px; border-radius: 8px; white-space: nowrap;
+    font-size: 0.875rem; font-weight: 500; padding: 5px 10px; border-radius: 8px; white-space: nowrap;
     transform: translate(-50%, calc(-100% - 10px));
   }
-  details { color: var(--muted); font-size: 14px; padding-inline: 4px; }
+  details { color: var(--muted); font-size: 0.875rem; padding-inline: 4px; }
   summary { cursor: pointer; }
   table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
   td, th { padding: 2px 14px 2px 0; text-align: left; font-weight: 400; }
   .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px 20px; flex-wrap: wrap; padding-inline: 4px; }
   .foot-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .status { color: var(--muted); font-size: 14px; }
+  .status { color: var(--muted); font-size: 0.875rem; }
   .status.bad { color: var(--blood); }
   .reset {
-    font: inherit; font-size: 15px; font-weight: 500; color: var(--blood); background: var(--fill);
-    border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer;
-    transition: transform 0.35s var(--spring), background-color 0.2s;
+    font: inherit; font-size: 0.9375rem; font-weight: 500; color: var(--blood); background: var(--fill);
+    border: 0; border-radius: 999px; padding: 0.4em 0.95em; cursor: pointer; touch-action: manipulation;
+    transition: transform 0.45s var(--spring), background-color 0.2s;
   }
   .reset:hover { background: var(--fill-hover); }
-  .reset:active { transform: scale(0.95); transition-duration: 0.08s; }
+  .reset:active { transform: scale(0.97); background: var(--fill-hover); transition: transform 0.1s ease-out, background-color 0.1s; }
   .reset:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
 
   /* Segmented control (Light / Dark). */
   .segmented { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; background: var(--fill); border-radius: 9px; padding: 2px; }
   .segmented button {
-    position: relative; z-index: 1; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink);
-    background: none; border: 0; padding: 5px 16px; border-radius: 7px; cursor: pointer;
+    position: relative; z-index: 1; font: inherit; font-size: 0.8125rem; font-weight: 500; color: var(--ink);
+    background: none; border: 0; padding: 0.38em 1.2em; border-radius: 7px; cursor: pointer;
+    letter-spacing: 0.005em; touch-action: manipulation; transition: opacity 0.1s ease-out;
   }
+  .segmented button:active { opacity: 0.55; }
   .segmented button:focus-visible { outline: 2px solid var(--tint); outline-offset: 1px; }
   .segmented .thumb {
     position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px);
     background: var(--thumb); border-radius: 7px; box-shadow: 0 3px 8px rgb(0 0 0 / 0.12), 0 3px 1px rgb(0 0 0 / 0.04);
-    transition: transform 0.4s var(--spring), background-color 0.3s;
+    transition: transform 0.45s var(--spring), background-color 0.35s var(--ease);
   }
   .segmented[data-value="dark"] .thumb { transform: translateX(100%); }
 
@@ -119,8 +127,9 @@
     min-height: calc(var(--size) + 28px); align-content: start;
   }
   .heart { display: grid; justify-items: center; gap: 2px; transition: opacity 0.5s var(--ease), transform 0.5s var(--ease); }
+    /* A heart leaves the way it came: shrinking back into its own spot. */
   .heart:not(.gone) { animation: pop 0.6s var(--spring) both; }
-  .heart.gone { opacity: 0; transform: scale(0.6); }
+  .heart.gone { opacity: 0; transform: scale(0); }
   .heart svg { width: calc(var(--size) * 0.82); height: auto; overflow: visible; will-change: transform; }
   .heart path { fill: var(--tint); stroke: var(--card); stroke-width: 1; transition: fill 0.6s var(--ease), opacity 0.6s; }
   .heart.waiting path { fill: var(--muted); opacity: 0.4; }
@@ -129,11 +138,25 @@
     line-height: 1; color: var(--ink);
   }
   .heart.waiting span { color: var(--muted); font-weight: 500; }
-  .hearts-empty { color: var(--muted); font-size: 16px; align-self: center; grid-column: 1 / -1; }
+  .hearts-empty { color: var(--muted); font-size: 1rem; align-self: center; grid-column: 1 / -1; }
 
-  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.35s; }
+  /* Light / Dark: colours ease for a moment (theme.js adds .theming); reversible mid-way. */
+  :root.theming, :root.theming *:not(.thumb) {
+    transition: background-color 0.35s var(--ease), color 0.35s var(--ease), border-color 0.35s var(--ease),
+                fill 0.35s var(--ease), stroke 0.35s var(--ease), box-shadow 0.35s var(--ease) !important;
+  }
+  /* Reduced motion: fades in place instead of movement; hearts glow instead of beating. */
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation: none !important; transition: none !important; }
+    @keyframes rise { from { opacity: 0; } }
+    @keyframes pop { from { opacity: 0; } }
+    .heart.gone { transform: none; }
+    .reset:active { transform: none; }
+    .segmented .thumb { transition: background-color 0.35s var(--ease); }
+  }
+  @media (prefers-contrast: more) {
+    :root { --muted: #3a3a3c; --rule: #c6c6c8; }
+    :root[data-theme="dark"] { --muted: #c7c7cc; --rule: #545458; }
+    .card { outline: 1px solid var(--rule); }
   }
 </style>
 </head>
@@ -217,13 +240,17 @@ function loadQr(urls) {
 }
 loadQr(['/static/vendor/qrcode.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js']);
 
+// Colours given as var(--…) go in the style, where CSS variables work, so a chart
+// follows Light / Dark (and eases with it) without being redrawn.
 function el(name, attrs, parent) {
   const node = document.createElementNS(NS, name);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (typeof v === 'string' && v.startsWith('var(')) node.style.setProperty(k, v);
+    else node.setAttribute(k, v);
+  }
   if (parent) parent.appendChild(node);
   return node;
 }
-const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 function tip(id, figure, text, x, y) {
   const t = $(id);
@@ -257,7 +284,7 @@ function drawHistogram(readings, median) {
   const tallest = Math.max(1, ...counts);
   const rad = Math.max(4, Math.min(binW * 0.4, (plotH / tallest) / 2 - 1, 16));
 
-  const surface = cssVar('--card'), mark = cssVar('--tint'), rule = cssVar('--rule'), ink = cssVar('--ink');
+  const surface = 'var(--card)', mark = 'var(--tint)', rule = 'var(--rule)', ink = 'var(--ink)';
   el('line', { x1: padL, x2: W - padR, y1: base + 0.5, y2: base + 0.5, stroke: rule, 'stroke-width': 1 }, svg);
   for (let v = Math.ceil(lo / 10) * 10; v <= hi; v += 10) {
     el('line', { x1: x(v), x2: x(v), y1: base, y2: base + 5, stroke: rule, 'stroke-width': 1 }, svg);
@@ -270,7 +297,7 @@ function drawHistogram(readings, median) {
   }
   if (median !== null) {
     el('line', { x1: x(median), x2: x(median), y1: padT - 6, y2: base, stroke: ink, 'stroke-width': 1 }, svg);
-    el('text', { x: x(median), y: padT - 12, 'text-anchor': 'middle', style: `fill:${ink}` }, svg)
+    el('text', { x: x(median), y: padT - 12, 'text-anchor': 'middle', fill: ink }, svg)
       .textContent = `median ${Math.round(median)}`;
   }
   const before = shownBins;
@@ -313,7 +340,7 @@ function drawChecks(checks) {
   const lo = Math.min(50, Math.floor((Math.min(...all) - 5) / 10) * 10);
   const hi = Math.max(120, Math.ceil((Math.max(...all) + 5) / 10) * 10);
   const sx = (v) => pad + (v - lo) / (hi - lo) * plot, sy = (v) => 10 + plot - (v - lo) / (hi - lo) * plot;
-  const surface = cssVar('--card'), mark = cssVar('--tint'), rule = cssVar('--rule'), muted = cssVar('--muted');
+  const surface = 'var(--card)', mark = 'var(--tint)', rule = 'var(--rule)', muted = 'var(--muted)';
 
   // ±5 bpm agreement band, then the diagonal.
   el('polygon', { points: [[lo, lo + 5], [hi - 5, hi], [hi, hi], [hi, hi - 5], [lo + 5, lo], [lo, lo]]
@@ -386,9 +413,12 @@ let lastFrame = performance.now();
 function animateHearts(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
   for (const h of hearts.values()) {
-    if (h.bpm === null || reduceMotion) { h.svg.style.transform = ''; continue; }
+    if (h.bpm === null) { h.svg.style.transform = h.svg.style.opacity = ''; continue; }
     h.phase = (h.phase + dt * h.bpm / 60) % 1;
-    h.svg.style.transform = `scale(${(0.86 + 0.2 * beatShape(h.phase)).toFixed(3)})`;
+    const b = beatShape(h.phase);
+    // Reduced motion: the same rhythm as a brightening, with nothing moving.
+    if (reduceMotion) h.svg.style.opacity = (0.55 + 0.45 * b).toFixed(3);
+    else h.svg.style.transform = `scale(${(0.86 + 0.2 * b).toFixed(3)})`;
   }
   requestAnimationFrame(animateHearts);
 }
@@ -455,7 +485,6 @@ $('resetBtn').onclick = async () => {
 
 window.addEventListener('resize', () => last && render(last));
 Theme.bind($('theme'));
-Theme.onChange(() => last && render(last));
 poll();
 </script>
 </body>
