@@ -13,3 +13,7 @@ models/
 
 # Browser tracking files, downloaded by fetch_assets.py
 static/vendor/
+
+# The web pages: dependencies, and the build (cd web && npm run build)
+web/node_modules/
+static/app/

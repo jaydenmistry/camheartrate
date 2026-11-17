@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import rppg_class
@@ -44,6 +44,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("rppg.app")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+# The pages are a React app in web/, built into static/app/ (cd web && npm install && npm run build).
+APP_DIR = STATIC_DIR / "app"
+PAGES = {"index": APP_DIR / "index.html", "class": APP_DIR / "class.html"}
 VENDOR_FILES = ("mediapipe/vision_bundle.mjs", "mediapipe/wasm/vision_wasm_internal.wasm",
                 "mediapipe/face_landmarker.task", "mediapipe/hand_landmarker.task")
 SEND_INTERVAL = 1.0 / 40.0       # poll faster than the 30 FPS source; only new frames are sent
@@ -56,10 +59,13 @@ CSP_REPORT_ONLY = os.environ.get("RPPG_CSP_REPORT_ONLY", "") == "1"
 
 
 def inline_script_hashes() -> list[str]:
-    """CSP hashes of the pages' inline <script> blocks, so no other inline script runs."""
+    """CSP hashes of the pages' inline <script> blocks, so no other inline script runs.
+    The built React pages have none (all their scripts are files), so this is usually empty."""
     hashes = []
-    for page in ("index.html", "class.html"):
-        for body in re.findall(r"<script>(.*?)</script>", (STATIC_DIR / page).read_text("utf-8"), re.S):
+    for page in PAGES.values():
+        if not page.exists():
+            continue
+        for body in re.findall(r"<script>(.*?)</script>", page.read_text("utf-8"), re.S):
             digest = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
             hashes.append(f"'sha256-{digest}'")
     return hashes
@@ -147,15 +153,22 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+def page(name: str) -> Response:
+    if not PAGES[name].exists():
+        return PlainTextResponse("The web pages are not built yet. Run:  cd web && npm install && npm run build\n",
+                                 status_code=503)
+    return FileResponse(PAGES[name], headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+async def index() -> Response:
+    return page("index")
 
 
 @app.get("/class")
-async def class_view() -> FileResponse:
+async def class_view() -> Response:
     """Projector page: how many are connected and everyone's heart rate."""
-    return FileResponse(STATIC_DIR / "class.html", headers={"Cache-Control": "no-cache"})
+    return page("class")
 
 
 @app.get("/api/class")

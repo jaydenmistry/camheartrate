@@ -8,8 +8,11 @@ Point a webcam at your face, palm or arm and read your heart rate, with no conta
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python test_dsp.py                # DSP self-test, must print 11/11 passed
+(cd web && npm install && npm run build)   # the pages: React, built into static/app/ (Node 20.19+ or 22.12+)
 uvicorn app:app --reload          # then open http://localhost:8000
 ```
+
+The pages are a React app in `web/` (React 19, Vite, React Three Fiber for the 3D heart, Motion for the animation). Rebuild after changing anything in `web/src/`. To work on them with instant reload, run uvicorn on port 8001 and `cd web && npm run dev`, then open http://localhost:5173/static/app/index.html; the dev server passes the WebSocket, the API and the other static files through to uvicorn.
 
 To start without a camera (for example, if a lecture-room machine has none), run `RPPG_SOURCE=synthetic uvicorn app:app --reload`. To start on a particular camera, give part of its name: `RPPG_CAMERA=iphone uvicorn app:app --reload`.
 
@@ -173,11 +176,13 @@ The full DSP output (BVP waveform, spectrum, RGB traces, SQI, RMSSD) is still st
 | `fetch_assets.py` | downloads the browser tracking files and QR library into `static/vendor/`, checksum-pinned (the Docker build runs it) |
 | `rppg_session.py` | deployed mode: one DSP engine per browser, fed with that browser's skin-patch averages; its own simulation |
 | `rppg_class.py` | deployed mode: everyone's latest reading and pulse checks, pooled across worker processes for the class view |
-| `static/index.html` | the app page: camera, skin outline, heart rate, 1- or 5-minute graph with marks (plain HTML/CSS/canvas) |
-| `static/theme.js` | light / dark appearance for both pages (light by default, remembered per browser) |
+| `web/src/measure/` | the app page (React): camera and skin outline, the 3D heart beating at the measured rate, the reading, 1- or 5-minute graph with marks, pulse check, pulse wave. `controller.js` holds the page's logic (connection, keys, history, pulse check) outside React |
+| `web/src/class/` | projector view at `/class` (React): connected count, a 3D wall of hearts, everyone's heart rate, pulse checks, QR code to join |
+| `web/src/components/`, `web/src/styles/` | shared pieces (glass cards, Light / Dark switch, signal bars) and the design tokens |
+| `static/app/` | the built pages (`npm run build` in `web/`; not committed) |
+| `static/theme.js` | light / dark appearance for both pages (light by default, remembered per browser), set before the first paint |
 | `static/magnify.js` | pulse magnifier: Eulerian colour magnification of the camera view (band-pass per pixel, amplified, overlaid) |
 | `static/browser.js` | deployed mode: the visitor's camera, MediaPipe face/hand tracking, region choice, per-frame skin averaging |
-| `static/class.html` | projector view at `/class`: connected count, everyone's heart rate, pulse checks, QR code to join |
 | `Dockerfile`, `requirements-web.txt` | the deployable server (browser mode) |
 | `test_dsp.py` | 11 self-tests: 72.0 ± 1.0 BPM through motion spikes (30 and 60 Hz), full 60–160 range, harmonic guard, patch fusion, motion bursts, steady first reading |
 

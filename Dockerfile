@@ -2,6 +2,14 @@
 # The page does capture, face/hand tracking and skin averaging; this container runs
 # the rPPG DSP for each connection. Serve it over HTTPS: browsers only allow camera
 # access on secure pages.
+# The pages: a React app in web/, built to static/app.
+FROM node:22-slim AS web
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -24,6 +32,7 @@ RUN python fetch_assets.py
 
 COPY app.py rppg_class.py rppg_dsp.py rppg_session.py rppg_synthetic.py ./
 COPY static ./static
+COPY --from=web /src/static/app ./static/app
 
 RUN useradd --create-home --uid 10001 app
 USER app

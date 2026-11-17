@@ -1,0 +1,239 @@
+/* Shared design tokens and pieces for both pages.
+   Glass cards over a soft, glowing backdrop; Geist for text, Geist Mono for
+   small labels and numbers. Light and Dark follow /static/theme.js.
+   Screen light (data-light="on") turns the page into a plain, neutral white
+   light source for the skin: no glows, no tints, nothing that moves colour. */
+
+:root {
+  --font: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --r-xl: 30px;
+  --r-lg: 24px;
+  --r-md: 16px;
+
+  --bg: #f2f2f5;
+  --ink: #0b0b10;
+  --ink-2: #2e2e36;
+  --muted: #64646e;
+  --faint: #a0a0aa;
+  --line: rgb(12 12 24 / 0.07);
+  --line-strong: rgb(12 12 24 / 0.13);
+  --surface: rgb(255 255 255 / 0.66);
+  --surface-solid: #ffffff;
+  --chip: rgb(12 12 24 / 0.045);
+  --chip-hover: rgb(12 12 24 / 0.085);
+  --accent: #ff2d55;
+  --accent-2: #ff7a3d;
+  --accent-ink: #d1002f;            /* red text: 5.6:1 on white */
+  --accent-soft: rgb(255 45 85 / 0.1);
+  --ok: #12a150;
+  --warn: #d1002f;
+  --stage: #0a0a0e;
+  --shadow: 0 1px 1px rgb(0 0 0 / 0.03), 0 10px 30px -12px rgb(30 10 40 / 0.14), 0 30px 70px -30px rgb(30 10 40 / 0.16);
+  --glow-a: rgb(255 45 85 / 0.22);
+  --glow-b: rgb(255 128 64 / 0.16);
+  --glow-c: rgb(124 92 255 / 0.12);
+  --grid: rgb(12 12 24 / 0.045);
+  --sheen: rgb(255 255 255 / 0.7);
+  color-scheme: light;
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --spring: linear(0, 0.06, 0.186, 0.329, 0.466, 0.584, 0.682, 0.76, 0.821, 0.868, 0.903, 0.929,
+                           0.949, 0.963, 0.973, 0.981, 0.986, 0.99, 0.993, 0.995, 0.997, 0.998, 0.999, 1); }
+}
+:root[data-theme="dark"] {
+  --bg: #050508;
+  --ink: #f5f5f7;
+  --ink-2: #cfcfd8;
+  --muted: #8f8f9b;
+  --faint: #5c5c68;
+  --line: rgb(255 255 255 / 0.075);
+  --line-strong: rgb(255 255 255 / 0.14);
+  --surface: rgb(20 20 27 / 0.58);
+  --surface-solid: #121218;
+  --chip: rgb(255 255 255 / 0.06);
+  --chip-hover: rgb(255 255 255 / 0.11);
+  --accent: #ff375f;
+  --accent-2: #ff8a4c;
+  --accent-ink: #ff6582;
+  --accent-soft: rgb(255 55 95 / 0.16);
+  --ok: #30d158;
+  --warn: #ff6582;
+  --stage: #000000;
+  --shadow: 0 0 0 1px rgb(255 255 255 / 0.015), 0 30px 80px -30px rgb(0 0 0 / 0.9);
+  --glow-a: rgb(255 40 90 / 0.32);
+  --glow-b: rgb(255 110 50 / 0.15);
+  --glow-c: rgb(96 72 255 / 0.2);
+  --grid: rgb(255 255 255 / 0.04);
+  --sheen: rgb(255 255 255 / 0.08);
+  color-scheme: dark;
+}
+/* Screen light: a steady, neutral white page. */
+:root[data-light="on"] {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --shadow: none;
+  --glow-a: transparent; --glow-b: transparent; --glow-c: transparent;
+  --grid: transparent;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.45;
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.4s var(--ease), color 0.4s var(--ease);
+}
+button { font: inherit; color: inherit; }
+::selection { background: var(--accent); color: #fff; }
+
+/* ---------------------------------------------------------------- backdrop */
+.backdrop { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: var(--bg); transition: background-color 0.4s var(--ease); }
+.backdrop::before {
+  content: ''; position: absolute; inset: 0;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 56px 56px; background-position: center -1px;
+  mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 25%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 25%, transparent 78%);
+}
+.blob { position: absolute; border-radius: 50%; will-change: transform; transition: opacity 0.6s var(--ease); }
+.blob.a { width: 70vmax; height: 70vmax; left: -22vmax; top: -38vmax; background: radial-gradient(closest-side, var(--glow-a), transparent); animation: drift-a 28s ease-in-out infinite alternate; }
+.blob.b { width: 55vmax; height: 55vmax; right: -24vmax; top: -10vmax; background: radial-gradient(closest-side, var(--glow-b), transparent); animation: drift-b 34s ease-in-out infinite alternate; }
+.blob.c { width: 80vmax; height: 80vmax; left: 10vmax; bottom: -60vmax; background: radial-gradient(closest-side, var(--glow-c), transparent); animation: drift-a 40s ease-in-out infinite alternate-reverse; }
+@keyframes drift-a { to { transform: translate3d(6vmax, 4vmax, 0) scale(1.08); } }
+@keyframes drift-b { to { transform: translate3d(-5vmax, 6vmax, 0) scale(0.94); } }
+:root[data-light="on"] .blob { opacity: 0; animation: none; }
+
+/* ---------------------------------------------------------------- glass card */
+.card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  transition: background-color 0.4s var(--ease), border-color 0.4s var(--ease), box-shadow 0.4s var(--ease);
+  isolation: isolate;
+}
+/* Light catching the top edge. */
+.card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 2;
+  background: linear-gradient(180deg, var(--sheen), transparent 28%) border-box;
+  -webkit-mask: linear-gradient(#000 0 0) padding-box exclude, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) padding-box exclude, linear-gradient(#000 0 0);
+  border: 1px solid transparent;
+}
+/* A soft spotlight that follows the pointer (off while the screen is the light). */
+.card[data-spot]::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0;
+  background: radial-gradient(520px circle at var(--mx, 50%) var(--my, -40%), var(--accent-soft), transparent 42%);
+  opacity: var(--spot, 0); transition: opacity 0.4s var(--ease);
+}
+:root[data-light="on"] .card[data-spot]::before { display: none; }
+:root[data-light="on"] .card { -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line-strong); }
+
+.card-pad { padding: 18px 20px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; z-index: 1; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: 500 0.6875rem/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+}
+.eyebrow svg { width: 14px; height: 14px; color: var(--accent); }
+.card-title { font-size: 0.9375rem; font-weight: 600; letter-spacing: -0.01em; }
+.card-sub { color: var(--muted); font-size: 0.8125rem; }
+
+/* ---------------------------------------------------------------- chips and buttons */
+.chip {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--chip); color: var(--ink);
+  font: 500 0.875rem/1 var(--font); letter-spacing: -0.005em; white-space: nowrap; text-decoration: none;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease);
+}
+.chip svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--accent-ink); }
+.chip:hover { background: var(--chip-hover); border-color: var(--line-strong); }
+.chip:focus-visible, .seg button:focus-visible, .tap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--accent-ink); }
+.chip.solid {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent;
+  box-shadow: 0 8px 24px -10px var(--accent), inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+.chip.solid svg { color: #fff; }
+
+/* Segmented control. */
+.seg {
+  position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: 999px;
+  background: var(--chip); border: 1px solid var(--line);
+}
+.seg button {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px;
+  border: 0; background: none; border-radius: 999px; cursor: pointer; color: var(--muted);
+  font: 500 0.8125rem/1 var(--font); transition: color 0.25s var(--ease); touch-action: manipulation;
+}
+.seg button svg { width: 15px; height: 15px; }
+.seg button[aria-checked="true"] { color: var(--ink); }
+/* The thumb slides under the chosen option on a critically damped spring. */
+.seg-thumb {
+  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--n, 2)); z-index: 0;
+  border-radius: 999px; background: var(--surface-solid);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12), 0 0 0 1px var(--line);
+  transform: translateX(calc(var(--i, 0) * 100%));
+  transition: transform 0.45s var(--spring), background-color 0.35s var(--ease);
+}
+:root[data-theme="dark"] .seg-thumb { background: rgb(255 255 255 / 0.12); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08); }
+
+/* Signal bars. */
+.signal { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font: 500 0.6875rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 13px; }
+.bars i { width: 4px; border-radius: 2px; background: var(--line-strong); transition: background-color 0.3s var(--ease), box-shadow 0.3s; }
+.bars i:nth-child(1) { height: 5px; } .bars i:nth-child(2) { height: 8px; } .bars i:nth-child(3) { height: 11px; } .bars i:nth-child(4) { height: 13px; }
+.bars i.on { background: var(--accent); }
+:root[data-theme="dark"] .bars i.on { box-shadow: 0 0 8px var(--accent); }
+
+.live-pill {
+  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--chip); font: 500 0.6875rem/1 var(--mono); letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted);
+}
+.live-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.live-pill[data-state="live"] i { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.live-pill[data-state="lost"] { color: var(--warn); }
+.live-pill[data-state="lost"] i { background: var(--warn); }
+
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand-mark {
+  position: relative; width: 40px; height: 40px; flex-shrink: 0; border-radius: 13px; display: grid; place-items: center;
+  background: linear-gradient(140deg, var(--accent) 10%, var(--accent-2));
+  box-shadow: 0 10px 24px -10px var(--accent), inset 0 1px 0 rgb(255 255 255 / 0.35), inset 0 -2px 6px rgb(120 0 30 / 0.25);
+}
+.brand-mark svg { width: 21px; height: 21px; fill: #fff; filter: drop-shadow(0 1px 1px rgb(120 0 30 / 0.35)); }
+.brand h1 { margin: 0; font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; }
+.brand p { margin: 0; color: var(--muted); font-size: 0.8125rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.spinner { width: 28px; height: 28px; border-radius: 50%; border: 2.5px solid rgb(255 255 255 / 0.18); border-top-color: #fff; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(1turn); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .blob { animation: none; }
+  .seg-thumb { transition: background-color 0.35s var(--ease); }
+  .spinner { animation-duration: 2.4s; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .card { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface-solid); }
+}
+@media (prefers-contrast: more) {
+  :root { --muted: #3a3a42; --line: rgb(0 0 0 / 0.2); }
+  :root[data-theme="dark"] { --muted: #c7c7cc; --line: rgb(255 255 255 / 0.25); }
+}
